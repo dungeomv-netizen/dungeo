@@ -51,22 +51,31 @@ def date_candidates(raw, today=None):
     return [d.isoformat() for d in sorted(cands)][:4]
 
 
-def prep_photos(files):
-    """files: list[(filename, bytes)] -> photo dicts (+ _img 보관)"""
+def prep_photos(file_storages):
+    """업로드 파일을 한 장씩 읽어 처리 후 원본을 즉시 버림(메모리 절약).
+    바코드/EXIF는 원본 해상도로, 비전용은 축소본만 보관."""
     photos = []
-    for i, (fname, raw) in enumerate(files):
+    for i, fs in enumerate(file_storages):
         try:
+            raw = fs.read()
             img = load_image(raw)
         except Exception:
             continue
-        taken_at, gps = read_exif(img)
-        barcodes = read_barcodes(img)
+        try:
+            taken_at, gps = read_exif(img)          # 원본에서 촬영시각·GPS
+            barcodes = read_barcodes(img)           # 원본 해상도로 바코드
+            thumb = make_thumb(img)                 # 작은 썸네일(data URI)
+            vimg = img.convert("RGB")
+            vimg.thumbnail((1280, 1280))            # 비전용 축소본만 보관
+        finally:
+            img.close()
+            del img, raw                            # 원본 즉시 해제
         photos.append({
-            "index": i, "filename": fname,
+            "index": i, "filename": getattr(fs, "filename", str(i)),
             "taken_at": taken_at, "gps": gps,
             "barcodes": barcodes,
-            "thumb": make_thumb(img),      # data URI (파일 저장 안 함)
-            "_img": img,
+            "thumb": thumb,
+            "_img": vimg,
         })
     return photos
 

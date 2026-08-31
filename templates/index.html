@@ -175,17 +175,25 @@ async function reloadSheet(){
 async function process(){
   if(!picked.length){alert('사진을 먼저 선택하세요 (끌어다 놓거나 클릭)');return;}
   const go=document.getElementById('go');go.disabled=true;
-  document.getElementById('proc').innerHTML='<span class="spin"></span> 처리 중… ('+picked.length+'장, 잠시만요)';
+  document.getElementById('proc').innerHTML='<span class="spin"></span> 처리 중… ('+picked.length+'장) — 무료서버라 조금 걸릴 수 있어요';
   const fd=new FormData();
   fd.append('store',document.getElementById('store').value);
   for(const f of picked)fd.append('photos',f);
   try{
-    const r=await(await fetch('/api/process',{method:'POST',body:fd})).json();
-    if(!r.ok){document.getElementById('proc').innerHTML='<small class="err">'+r.error+'</small>';go.disabled=false;return;}
+    const resp=await fetch('/api/process',{method:'POST',body:fd});
+    if(!resp.ok){
+      let extra=''; try{extra=(await resp.text()).slice(0,120);}catch(e){}
+      throw new Error('서버 오류('+resp.status+'). 사진을 20~30장 이하로 나눠서 올려보세요. '+extra);
+    }
+    let r; try{ r=await resp.json(); }
+    catch(e){ throw new Error('서버 응답이 끊겼어요(사진이 너무 많을 수 있어요). 20~30장씩 나눠서 올려보세요.'); }
+    if(!r.ok){ throw new Error(r.error||'처리 실패'); }
     document.getElementById('proc').textContent='완료: '+r.results.length+'개 제품'
       +(r.sorted_tabs&&r.sorted_tabs.length?' · 시트 날짜순 정렬 완료 ✅':'');
     renderResults(r.results);
-  }catch(e){document.getElementById('proc').innerHTML='<small class="err">'+e+'</small>';}
+  }catch(e){
+    document.getElementById('proc').innerHTML='<small class="err">'+esc(e.message||String(e))+'</small>';
+  }
   go.disabled=false;
 }
 function esc(s){return (s||'').toString().replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));}

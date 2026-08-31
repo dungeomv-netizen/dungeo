@@ -99,10 +99,10 @@ def api_process():
     try:
         s = get_sheet()
         batch_store = request.form.get("store", "").strip()
-        files = [(f.filename, f.read()) for f in request.files.getlist("photos") if f.filename]
-        if not files:
+        fs_list = [f for f in request.files.getlist("photos") if f.filename]
+        if not fs_list:
             return jsonify(ok=False, error="사진이 없어요"), 400
-        results = process_batch(files, batch_store, s)
+        results = process_batch(fs_list, batch_store, s)
         # 작업 끝나면 기입된 매장을 유통기한 날짜순으로 정렬
         sorted_tabs = []
         if config.live_mode():
