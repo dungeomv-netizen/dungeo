@@ -104,8 +104,9 @@ def api_process():
             return jsonify(ok=False, error="사진이 없어요"), 400
         results = process_batch(fs_list, batch_store, s)
         # 작업 끝나면 기입된 매장을 유통기한 날짜순으로 정렬
+        # (여러 묶음으로 나눠 올릴 땐 nosort=1 로 생략하고, 맨 끝에 /api/sort 한 번만)
         sorted_tabs = []
-        if config.live_mode():
+        if config.live_mode() and not request.form.get("nosort"):
             touched = {r.get("store") for r in results
                        if r.get("status") == "기입완료" and r.get("store")}
             for t in touched:
@@ -159,12 +160,14 @@ def api_save():
     d = request.get_json(force=True)
     s = get_sheet()
     try:
+        # 바코드가 있으면 항상 바코드로 행을 다시 찾음(정렬로 행이 바뀌었어도 안전)
         row = d.get("row")
-        if not row:   # ambiguous 항목: 바코드+매장으로 행 찾기
+        if d.get("barcode"):
             info = s.lookup(d["barcode"], d["store"])
-            if not info or info.get("ambiguous"):
-                return jsonify(ok=False, error="그 매장에서 바코드를 못 찾았어요"), 400
-            row = info["row"]
+            if info and not info.get("ambiguous"):
+                row = info["row"]
+        if not row:
+            return jsonify(ok=False, error="그 매장에서 바코드를 못 찾았어요"), 400
         for w in d["writes"]:
             s.write_cell(d["store"], int(row), int(w["col"]), w["value"])
         # 애매했던 날짜를 골라 저장했으면, 이 제품의 날짜형식 기억(다음부터 자동)

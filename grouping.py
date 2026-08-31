@@ -17,7 +17,7 @@ def group_photos(photos):
     else:
         ordered = sorted(photos, key=lambda p: p["index"])
 
-    groups, pending, cur = [], [], None
+    groups, pending, cur, orphans = [], [], None, []
     for p in ordered:
         t = p.get("ptype", "other")
         if t == "barcode":
@@ -30,12 +30,15 @@ def group_photos(photos):
                 pending = []
                 groups.append(cur)
         elif t == "front":
-            pending.append(p)          # 다음 바코드까지 대기
+            pending.append(p)          # 앞면 → 다음 바코드에 붙임
         else:                          # date / other
             if cur is not None:
-                cur["photos"].append(p)
+                cur["photos"].append(p)   # 날짜 → 직전 바코드 제품에
             else:
-                pending.append(p)      # 바코드 전에 나온 날짜 → 다음 제품에 합류
-    if pending:                        # 바코드 못 읽은 잔여(앞면/날짜만)
+                # 바코드 전에 나온 날짜 = 묶음 경계 고아 → 뒤 제품에 잘못 붙지 않게 별도(확인필요)
+                orphans.append(p)
+    if pending:                        # 앞면만 있고 바코드 못 읽은 잔여
         groups.append({"photos": pending, "bc": None})
+    for o in orphans:                  # 경계 고아: 각각 확인필요로
+        groups.append({"photos": [o], "bc": None})
     return [g["photos"] for g in groups]
