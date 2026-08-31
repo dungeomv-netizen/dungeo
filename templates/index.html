@@ -215,6 +215,17 @@ async function readGps(file){
   }catch(e){}
   return null;
 }
+// 폰 내장 바코드 스캐너로 원본에서 바코드 읽기(삼성/안드로 크롬). 실패/미지원시 null → 서버가 대신 시도.
+async function detectBarcode(file){
+  try{
+    if(!('BarcodeDetector' in window)) return null;
+    const bd=new BarcodeDetector({formats:['ean_13','ean_8','upc_a','upc_e','code_128','code_39','codabar','itf']});
+    const bmp=await createImageBitmap(file);
+    const codes=await bd.detect(bmp);
+    if(bmp.close) bmp.close();
+    return (codes&&codes.length)? String(codes[0].rawValue).trim() : null;
+  }catch(e){ return null; }
+}
 // 폰에서 사진을 미리 줄여서 보냄(서버 메모리 절약 → 안 죽음). 바코드는 충분히 선명.
 function resizeImage(file){
   return new Promise((resolve)=>{
@@ -222,13 +233,13 @@ function resizeImage(file){
       const url=URL.createObjectURL(file);
       const img=new Image();
       img.onload=()=>{
-        const max=1500, w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
+        const max=2000, w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
         const s=Math.min(1, max/Math.max(w,h));
         const cw=Math.max(1,Math.round(w*s)), ch=Math.max(1,Math.round(h*s));
         const c=document.createElement('canvas'); c.width=cw; c.height=ch;
         c.getContext('2d').drawImage(img,0,0,cw,ch);
         URL.revokeObjectURL(url);
-        c.toBlob(b=>resolve(b||file),'image/jpeg',0.82);
+        c.toBlob(b=>resolve(b||file),'image/jpeg',0.88);
       };
       img.onerror=()=>{URL.revokeObjectURL(url);resolve(file);};
       img.src=url;
@@ -245,17 +256,19 @@ async function process(){
   let all=[], failed=0, done=0;
   for(let ci=0;ci<chunks.length;ci++){
     proc.innerHTML='<span class="spin"></span> 사진 준비 중… '+done+' / '+picked.length+'장';
-    let blobs, gpsArr;
+    let blobs, gpsArr, bcArr;
     try{
-      gpsArr=await Promise.all(chunks[ci].map(f=>readGps(f)));    // 원본에서 GPS 먼저
-      blobs=await Promise.all(chunks[ci].map(f=>resizeImage(f))); // 그다음 축소
-    }catch(e){ blobs=chunks[ci]; gpsArr=chunks[ci].map(()=>null); }
+      gpsArr=await Promise.all(chunks[ci].map(f=>readGps(f)));       // 원본에서 GPS
+      bcArr=await Promise.all(chunks[ci].map(f=>detectBarcode(f)));  // 원본에서 바코드
+      blobs=await Promise.all(chunks[ci].map(f=>resizeImage(f)));    // 그다음 축소
+    }catch(e){ blobs=chunks[ci]; gpsArr=chunks[ci].map(()=>null); bcArr=chunks[ci].map(()=>null); }
     proc.innerHTML='<span class="spin"></span> 처리 중… '+done+' / '+picked.length+'장'
       +(chunks.length>1?' ('+(ci+1)+'/'+chunks.length+' 묶음)':'')+' — 닫지 말고 기다려주세요';
     const fd=new FormData();
     fd.append('store',store);
     fd.append('nosort','1');                 // 정렬은 맨 끝에 한 번만
-    fd.append('gps', JSON.stringify(gpsArr||[]));   // 사진별 GPS(자동 매장판별용)
+    fd.append('gps', JSON.stringify(gpsArr||[]));       // 사진별 GPS(자동 매장판별용)
+    fd.append('barcodes', JSON.stringify(bcArr||[]));   // 사진별 바코드(폰이 원본에서 읽음)
     blobs.forEach((b,i)=>fd.append('photos', b, 'p'+(done+i)+'.jpg'));
     try{
       const resp=await fetch('/api/process',{method:'POST',body:fd});

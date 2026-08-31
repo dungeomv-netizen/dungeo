@@ -102,12 +102,17 @@ def api_process():
         fs_list = [f for f in request.files.getlist("photos") if f.filename]
         if not fs_list:
             return jsonify(ok=False, error="사진이 없어요"), 400
-        client_gps = []
+        client_gps, client_barcodes = [], []
         try:
             client_gps = json.loads(request.form.get("gps", "") or "[]")
         except Exception:
             client_gps = []
-        results = process_batch(fs_list, batch_store, s, client_gps=client_gps)
+        try:
+            client_barcodes = json.loads(request.form.get("barcodes", "") or "[]")
+        except Exception:
+            client_barcodes = []
+        results = process_batch(fs_list, batch_store, s,
+                                client_gps=client_gps, client_barcodes=client_barcodes)
         # 작업 끝나면 기입된 매장을 유통기한 날짜순으로 정렬
         # (여러 묶음으로 나눠 올릴 땐 nosort=1 로 생략하고, 맨 끝에 /api/sort 한 번만)
         sorted_tabs = []

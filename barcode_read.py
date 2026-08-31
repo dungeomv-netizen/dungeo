@@ -5,8 +5,14 @@ from PIL import Image, ImageOps
 
 
 def _decode(img):
+    res = []
     try:
-        res = zxingcpp.read_barcodes(img)
+        res = zxingcpp.read_barcodes(img, try_rotate=True, try_downscale=True)
+    except TypeError:
+        try:
+            res = zxingcpp.read_barcodes(img)
+        except Exception:
+            res = []
     except Exception:
         res = []
     out = []

@@ -51,11 +51,12 @@ def date_candidates(raw, today=None):
     return [d.isoformat() for d in sorted(cands)][:4]
 
 
-def prep_photos(file_storages, client_gps=None):
+def prep_photos(file_storages, client_gps=None, client_barcodes=None):
     """업로드 파일을 한 장씩 읽어 처리 후 원본을 즉시 버림(메모리 절약).
     바코드/EXIF는 원본 해상도로, 비전용은 축소본만 보관.
-    client_gps: 폰에서 축소 전 읽어 보낸 사진별 [lat,lng](없으면 None)."""
+    client_gps/client_barcodes: 폰에서 축소 전 읽어 보낸 사진별 값(없으면 None)."""
     client_gps = client_gps or []
+    client_barcodes = client_barcodes or []
     photos = []
     for i, fs in enumerate(file_storages):
         try:
@@ -71,7 +72,9 @@ def prep_photos(file_storages, client_gps=None):
                     gps = (float(cg[0]), float(cg[1]))   # 폰이 보낸 GPS 사용(축소본엔 EXIF 없음)
                 except Exception:
                     pass
-            barcodes = read_barcodes(img)           # 원본 해상도로 바코드
+            # 바코드: 폰이 원본에서 읽은 값 우선, 없으면 서버가 이미지에서 시도
+            cb = client_barcodes[i] if i < len(client_barcodes) else None
+            barcodes = [str(cb).strip()] if cb else read_barcodes(img)
             thumb = make_thumb(img)                 # 작은 썸네일(data URI)
             vimg = img.convert("RGB")
             vimg.thumbnail((900, 900))              # 비전용 축소본만 보관(메모리 절약)
@@ -162,10 +165,10 @@ def _classify(p, a):
     return a.get("type", "other")
 
 
-def process_batch(files, batch_store, sheet, client_gps=None):
+def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=None):
     today = datetime.date.today().isoformat()
     tdate = datetime.date.fromisoformat(today)
-    photos = prep_photos(files, client_gps=client_gps)
+    photos = prep_photos(files, client_gps=client_gps, client_barcodes=client_barcodes)
 
     # 사진별 비전 분석(한 번에): 종류/날짜/제품명
     analyses = vision.analyze_images([p["_img"] for p in photos], today)
