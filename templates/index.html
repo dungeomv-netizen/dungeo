@@ -78,9 +78,9 @@
   <!-- 업로드 -->
   <section id="up">
     <div class="card">
-      <label>이번 사진 매장 (꼭 선택)</label>
+      <label>이번 사진 매장</label>
       <select id="store">
-        <option value="">— 매장을 선택하세요 —</option>
+        <option value="">자동 (사진 GPS로 판별)</option>
       </select>
       <label>사진 (제품별로 2~3장씩, 통째로 여러 개 OK)</label>
       <input id="files" type="file" accept="image/*" multiple style="display:none">
@@ -173,6 +173,48 @@ async function reloadSheet(){
 
 // ---------- 처리 ----------
 const CHUNK=15;   // 폰에서 미리 축소하므로 이만큼씩 나눠 처리
+// 사진 줄이기 전에 원본에서 GPS만 읽어냄(자동 매장판별 유지). 실패시 null → 안전.
+async function readGps(file){
+  try{
+    const buf=await file.slice(0, 512*1024).arrayBuffer();
+    const dv=new DataView(buf);
+    if(dv.getUint16(0)!==0xFFD8) return null;
+    let off=2;
+    while(off+4<=dv.byteLength){
+      const marker=dv.getUint16(off);
+      if(marker===0xFFDA) break;
+      if(marker===0xFFE1){
+        const size=dv.getUint16(off+2), start=off+4;
+        if(dv.getUint32(start)===0x45786966 && dv.getUint16(start+4)===0x0000){
+          const tiff=start+6, le=dv.getUint16(tiff)===0x4949;
+          const u16=o=>dv.getUint16(o,le), u32=o=>dv.getUint32(o,le);
+          if(u16(tiff+2)!==0x002A) return null;
+          const ifd0=tiff+u32(tiff+4), n0=u16(ifd0); let gp=null;
+          for(let i=0;i<n0;i++){const e=ifd0+2+i*12; if(u16(e)===0x8825){gp=tiff+u32(e+8);break;}}
+          if(gp==null) return null;
+          const ng=u16(gp); let latRef='N',lonRef='E',lat=null,lon=null;
+          for(let i=0;i<ng;i++){
+            const e=gp+2+i*12, tag=u16(e);
+            if(tag===1) latRef=String.fromCharCode(dv.getUint8(e+8));
+            else if(tag===3) lonRef=String.fromCharCode(dv.getUint8(e+8));
+            else if(tag===2||tag===4){
+              const p=tiff+u32(e+8);
+              const v=u32(p)/u32(p+4)+u32(p+8)/u32(p+12)/60+u32(p+16)/u32(p+20)/3600;
+              if(tag===2) lat=v; else lon=v;
+            }
+          }
+          if(lat==null||lon==null) return null;
+          if(latRef==='S') lat=-lat; if(lonRef==='W') lon=-lon;
+          if(Math.abs(lat)>90||Math.abs(lon)>180||(lat===0&&lon===0)) return null;
+          return [lat,lon];
+        }
+        off+=2+size;
+      } else if((marker&0xFF00)===0xFF00){ off+=2+dv.getUint16(off+2); }
+      else break;
+    }
+  }catch(e){}
+  return null;
+}
 // 폰에서 사진을 미리 줄여서 보냄(서버 메모리 절약 → 안 죽음). 바코드는 충분히 선명.
 function resizeImage(file){
   return new Promise((resolve)=>{
@@ -195,8 +237,7 @@ function resizeImage(file){
 }
 async function process(){
   if(!picked.length){alert('사진을 먼저 선택하세요 (끌어다 놓거나 클릭)');return;}
-  const store=document.getElementById('store').value;
-  if(!store){alert('먼저 "이번 사진 매장"을 선택하세요');return;}
+  const store=document.getElementById('store').value;   // ''=자동(GPS로 판별)
   const go=document.getElementById('go');go.disabled=true;
   const proc=document.getElementById('proc');
   const chunks=[];
@@ -204,14 +245,17 @@ async function process(){
   let all=[], failed=0, done=0;
   for(let ci=0;ci<chunks.length;ci++){
     proc.innerHTML='<span class="spin"></span> 사진 준비 중… '+done+' / '+picked.length+'장';
-    let blobs;
-    try{ blobs=await Promise.all(chunks[ci].map(f=>resizeImage(f))); }
-    catch(e){ blobs=chunks[ci]; }
+    let blobs, gpsArr;
+    try{
+      gpsArr=await Promise.all(chunks[ci].map(f=>readGps(f)));    // 원본에서 GPS 먼저
+      blobs=await Promise.all(chunks[ci].map(f=>resizeImage(f))); // 그다음 축소
+    }catch(e){ blobs=chunks[ci]; gpsArr=chunks[ci].map(()=>null); }
     proc.innerHTML='<span class="spin"></span> 처리 중… '+done+' / '+picked.length+'장'
       +(chunks.length>1?' ('+(ci+1)+'/'+chunks.length+' 묶음)':'')+' — 닫지 말고 기다려주세요';
     const fd=new FormData();
     fd.append('store',store);
     fd.append('nosort','1');                 // 정렬은 맨 끝에 한 번만
+    fd.append('gps', JSON.stringify(gpsArr||[]));   // 사진별 GPS(자동 매장판별용)
     blobs.forEach((b,i)=>fd.append('photos', b, 'p'+(done+i)+'.jpg'));
     try{
       const resp=await fetch('/api/process',{method:'POST',body:fd});

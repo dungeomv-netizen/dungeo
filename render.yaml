@@ -17,6 +17,6 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: GEMINI_MODEL
-        value: gemini-3.6-flash
+        value: gemini-flash-latest
       - key: GEMINI_FALLBACK_MODEL
-        value: gemini-3-flash-preview
+        value: gemini-flash-lite-latest

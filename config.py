@@ -9,8 +9,8 @@ load_dotenv(BASE / ".env")
 
 # --- 비밀/외부 ---
 GEMINI_API_KEY      = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL        = os.getenv("GEMINI_MODEL", "gemini-3.6-flash").strip()
-GEMINI_FALLBACK     = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3-flash-preview").strip()
+GEMINI_MODEL        = os.getenv("GEMINI_MODEL", "gemini-flash-latest").strip()
+GEMINI_FALLBACK     = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-flash-lite-latest").strip()
 SHEET_ID            = os.getenv("SHEET_ID", "").strip()
 PORT                = int(os.getenv("PORT", "8800"))
 

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """유통기한 관리기 — Flask 서버."""
-import datetime, traceback, re
+import datetime, traceback, re, json
 from flask import Flask, request, jsonify, render_template, Response, session, redirect
 import config, store_geo, date_prefs
 from sheets import Sheet, _parse_date
@@ -102,7 +102,12 @@ def api_process():
         fs_list = [f for f in request.files.getlist("photos") if f.filename]
         if not fs_list:
             return jsonify(ok=False, error="사진이 없어요"), 400
-        results = process_batch(fs_list, batch_store, s)
+        client_gps = []
+        try:
+            client_gps = json.loads(request.form.get("gps", "") or "[]")
+        except Exception:
+            client_gps = []
+        results = process_batch(fs_list, batch_store, s, client_gps=client_gps)
         # 작업 끝나면 기입된 매장을 유통기한 날짜순으로 정렬
         # (여러 묶음으로 나눠 올릴 땐 nosort=1 로 생략하고, 맨 끝에 /api/sort 한 번만)
         sorted_tabs = []
