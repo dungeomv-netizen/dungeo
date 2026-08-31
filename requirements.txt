@@ -1,0 +1,10 @@
+flask
+gunicorn
+pillow
+pillow-heif
+piexif
+zxing-cpp
+requests
+gspread
+google-auth
+python-dotenv

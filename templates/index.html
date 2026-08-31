@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>유통기한 관리기</title>
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#4a8dff">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="유통기한">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
+<style>
+  :root{--bg:#0f1115;--card:#181b22;--line:#2a2f3a;--tx:#e7ebf3;--mut:#9aa4b2;
+        --grn:#2ecc71;--blu:#4a9eff;--amb:#f5a623;--red:#ff5a5a;--org:#ff9f43;--yel:#ffd23f;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font-family:"Malgun Gothic",system-ui,sans-serif}
+  header{position:sticky;top:0;background:#12141a;border-bottom:1px solid var(--line);
+         padding:12px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;z-index:5}
+  header h1{font-size:18px;margin:0;flex:1}
+  .badge{font-size:12px;padding:3px 9px;border-radius:20px;border:1px solid var(--line)}
+  .badge.live{background:#0f2f1c;color:var(--grn);border-color:#1f5c39}
+  .badge.prev{background:#2e2410;color:var(--amb);border-color:#5c4a1f}
+  .tabs{display:flex;gap:6px;padding:10px 16px;flex-wrap:wrap}
+  .tabs button{background:var(--card);color:var(--tx);border:1px solid var(--line);
+               padding:9px 14px;border-radius:10px;font-size:15px;cursor:pointer}
+  .tabs button.on{background:var(--blu);border-color:var(--blu);color:#fff}
+  main{padding:0 16px 60px;max-width:900px;margin:0 auto}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:12px 0}
+  label{display:block;font-size:13px;color:var(--mut);margin:8px 0 4px}
+  select,input[type=text],input[type=date]{width:100%;background:#10131a;color:var(--tx);
+    border:1px solid var(--line);border-radius:9px;padding:10px;font-size:15px}
+  .btn{background:var(--blu);color:#fff;border:0;border-radius:10px;padding:12px 16px;
+       font-size:16px;cursor:pointer;width:100%}
+  .btn.sec{background:#242a35}
+  .btn:disabled{opacity:.5}
+  .drop{border:2px dashed var(--line);border-radius:14px;padding:26px;text-align:center;color:var(--mut)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .thumbs{display:flex;gap:6px;flex-wrap:wrap}
+  .thumbs img{width:66px;height:66px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+  .item{border-left:4px solid var(--line);padding:10px 12px;border-radius:10px;background:#12151c;margin:10px 0}
+  .item.ok{border-color:var(--grn)} .item.prev{border-color:var(--amb)}
+  .item.new{border-color:var(--blu)} .item.warn{border-color:var(--red)}
+  .tag{font-size:11px;padding:2px 8px;border-radius:20px;display:inline-block}
+  .tag.ok{background:#0f2f1c;color:var(--grn)} .tag.prev{background:#2e2410;color:var(--amb)}
+  .tag.new{background:#10233d;color:var(--blu)} .tag.warn{background:#301315;color:var(--red)}
+  .muted{color:var(--mut);font-size:13px}
+  .k{color:var(--mut);font-size:12px}
+  .v{font-size:15px;font-weight:600}
+  .grid3{display:grid;grid-template-columns:1fr;gap:12px}
+  @media(min-width:720px){.grid3{grid-template-columns:1fr 1fr 1fr}}
+  .col h3{margin:0 0 8px;font-size:15px}
+  .al{padding:8px 10px;border-radius:9px;background:#12151c;border:1px solid var(--line);margin:6px 0}
+  .al .d{font-weight:700} .d.red{color:var(--red)} .d.org{color:var(--org)} .d.yel{color:var(--yel)}
+  small.err{color:var(--red)}
+  .hide{display:none}
+  .spin{display:inline-block;width:16px;height:16px;border:3px solid #444;border-top-color:var(--blu);
+        border-radius:50%;animation:sp 1s linear infinite;vertical-align:middle}
+  @keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header>
+  <h1>🏪 유통기한 관리기</h1>
+  <span id="modeBadge" class="badge">…</span>
+  <span id="pcount" class="badge"></span>
+  <button class="badge" onclick="reloadSheet()">↻ 새로고침</button>
+</header>
+
+<div class="tabs">
+  <button data-tab="up" class="on" onclick="tab('up')">📤 업로드</button>
+  <button data-tab="al" onclick="tab('al')">🔔 임박알림</button>
+  <button data-tab="se" onclick="tab('se')">⚙️ 설정</button>
+</div>
+
+<main>
+  <!-- 업로드 -->
+  <section id="up">
+    <div class="card">
+      <label>이번 사진 매장</label>
+      <select id="store">
+        <option value="">자동 (사진 GPS로 판별)</option>
+      </select>
+      <label>사진 (제품별로 2~3장씩, 통째로 여러 개 OK)</label>
+      <input id="files" type="file" accept="image/*" multiple style="display:none">
+      <div class="drop" id="dz" onclick="document.getElementById('files').click()">
+        📷 사진을 <b>여기에 끌어다 놓거나</b> 클릭해서 선택<br><span class="muted" id="fcnt">아직 선택 안 함</span>
+      </div>
+      <div style="height:10px"></div>
+      <button class="btn" id="go" onclick="process()">처리하기</button>
+      <div id="proc" class="muted" style="margin-top:10px"></div>
+    </div>
+    <div id="results"></div>
+  </section>
+
+  <!-- 임박알림 -->
+  <section id="al" class="hide">
+    <div class="card">
+      <div class="row">
+        <label style="margin:0">매장</label>
+        <select id="alStore" onchange="renderAlerts()" style="flex:1"><option value="">전체</option></select>
+        <button class="btn sec" style="width:auto" onclick="loadAlerts()">↻</button>
+        <button class="btn sec" style="width:auto" onclick="sortSheet()">↕ 날짜순 정렬</button>
+      </div>
+    </div>
+    <div id="alertsBox"></div>
+  </section>
+
+  <!-- 설정 -->
+  <section id="se" class="hide">
+    <div class="card">
+      <h3 style="margin-top:0">매장 위치 학습 (GPS 기준 잡기)</h3>
+      <p class="muted">각 매장에서 찍은 <b>원본 사진 1장</b>을 올리면 그 위치를 매장 기준으로 저장해요.
+        이후 업로드한 사진 GPS가 그 근처면 자동으로 이 매장에 기입됩니다.</p>
+      <label>매장 선택</label>
+      <select id="lsTab"></select>
+      <label>그 매장에서 찍은 사진</label>
+      <input id="lsFile" type="file" accept="image/*">
+      <div style="height:8px"></div>
+      <button class="btn sec" onclick="learnStore()">이 사진 위치를 매장 기준으로 저장</button>
+      <div id="lsMsg" class="muted" style="margin-top:8px"></div>
+      <div id="storeList" style="margin-top:12px"></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">상태</h3>
+      <div id="statusBox" class="muted"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+let STATUS={live:false,tabs:[],stores:[],product_count:0};
+
+async function boot(){
+  STATUS=await (await fetch('/api/status')).json();
+  const b=document.getElementById('modeBadge');
+  b.textContent=STATUS.live?'라이브 · 시트 기입':'미리보기 · 구글 연결 전';
+  b.className='badge '+(STATUS.live?'live':'prev');
+  document.getElementById('pcount').textContent='상품 '+STATUS.product_count.toLocaleString()+'개';
+  for(const t of STATUS.tabs){
+    for(const id of ['store','alStore','lsTab']){
+      const o=document.createElement('option');o.value=t;o.textContent=t;
+      document.getElementById(id).appendChild(o);
+    }
+  }
+  renderStores(); renderStatus();
+}
+function tab(id){
+  for(const s of ['up','al','se'])document.getElementById(s).classList.toggle('hide',s!==id);
+  for(const btn of document.querySelectorAll('.tabs button'))btn.classList.toggle('on',btn.dataset.tab===id);
+  if(id==='al')loadAlerts();
+}
+let picked=[];
+function setPicked(list){
+  picked=list;
+  document.getElementById('fcnt').textContent=picked.length?(picked.length+'장 선택됨'):'아직 선택 안 함';
+}
+document.getElementById('files').addEventListener('change',e=>setPicked([...e.target.files]));
+const dz=document.getElementById('dz');
+['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{
+  e.preventDefault();e.stopPropagation();dz.style.borderColor='var(--blu)';dz.style.background='#12203a';}));
+['dragleave','dragend','drop'].forEach(ev=>dz.addEventListener(ev,e=>{
+  e.preventDefault();e.stopPropagation();dz.style.borderColor='';dz.style.background='';}));
+dz.addEventListener('drop',e=>{
+  const fs=[...(e.dataTransfer?e.dataTransfer.files:[])].filter(f=>f.type.startsWith('image/'));
+  if(fs.length)setPicked(fs); else alert('이미지 파일만 올려주세요');
+});
+async function reloadSheet(){
+  const r=await(await fetch('/api/reload',{method:'POST'})).json();
+  document.getElementById('pcount').textContent='상품 '+(r.product_count||0).toLocaleString()+'개';
+}
+
+// ---------- 처리 ----------
+async function process(){
+  if(!picked.length){alert('사진을 먼저 선택하세요 (끌어다 놓거나 클릭)');return;}
+  const go=document.getElementById('go');go.disabled=true;
+  document.getElementById('proc').innerHTML='<span class="spin"></span> 처리 중… ('+picked.length+'장, 잠시만요)';
+  const fd=new FormData();
+  fd.append('store',document.getElementById('store').value);
+  for(const f of picked)fd.append('photos',f);
+  try{
+    const r=await(await fetch('/api/process',{method:'POST',body:fd})).json();
+    if(!r.ok){document.getElementById('proc').innerHTML='<small class="err">'+r.error+'</small>';go.disabled=false;return;}
+    document.getElementById('proc').textContent='완료: '+r.results.length+'개 제품'
+      +(r.sorted_tabs&&r.sorted_tabs.length?' · 시트 날짜순 정렬 완료 ✅':'');
+    renderResults(r.results);
+  }catch(e){document.getElementById('proc').innerHTML='<small class="err">'+e+'</small>';}
+  go.disabled=false;
+}
+function esc(s){return (s||'').toString().replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));}
+function storeOpts(sel){return STATUS.tabs.map(t=>`<option ${t===sel?'selected':''}>${esc(t)}</option>`).join('');}
+
+function renderResults(rs){
+  const order={'확인필요':0,'미등록':1,'미리보기':2,'기입완료':3};
+  rs.sort((a,b)=>(order[a.status]??9)-(order[b.status]??9));
+  const box=document.getElementById('results');box.innerHTML='';
+  const c=document.createElement('div');c.className='card';
+  const cnt={};rs.forEach(r=>cnt[r.status]=(cnt[r.status]||0)+1);
+  c.innerHTML='<b>결과</b> &nbsp;'+Object.entries(cnt).map(([k,v])=>`${k} ${v}`).join(' · ');
+  box.appendChild(c);
+  for(const it of rs)box.appendChild(card(it));
+}
+function tagCls(s){return s==='기입완료'?'ok':s==='미리보기'?'prev':s==='미등록'?'new':'warn';}
+function card(it){
+  const d=document.createElement('div');d.className='item '+tagCls(it.status);
+  const thumbs=(it.thumbs||[]).map(t=>`<img src="${t}">`).join('');
+  const datesRead=(it.dates_read||[]).map(x=>`<span class="k">${esc(x.kind||'')}</span> ${esc(x.raw||'')} → <b>${x.iso||(x.ambiguous?'애매':'?')}</b>`).join('<br>');
+  let extra='';
+  if(it.status==='기입완료'||it.status==='미리보기'){
+    const w=(it.writes||[]).map(w=>`${w.col_name}=<b>${esc(w.display)}</b>`).join(', ');
+    extra=`<div style="margin-top:6px">기입: ${w||'-'}</div>`+
+          (it.status==='미리보기'?`<div class="muted">${esc(it.reason)}</div>`:'');
+  }else if(it.status==='미등록'){
+    extra=`<div style="margin-top:8px">
+      <label>매장</label><select id="ns_${it.id}">${storeOpts(it.store)}</select>
+      <label>제품명</label><input type="text" id="nn_${it.id}" value="${esc(it.read_name||'')}">
+      <label>유통기한</label><input type="date" id="nd_${it.id}" value="${(it.suggest_dates||[])[0]||''}">
+      <div style="height:8px"></div>
+      <button class="btn" onclick="register('${it.id}','${esc(it.barcode)}')">＋ 새로 등록하기</button>
+      <div class="muted" id="nm_${it.id}"></div></div>`;
+  }else{ // 확인필요
+    let sug=(it.suggest_dates||[])[0]||((it.dates_read.find(x=>x.iso)||{}).iso||'');
+    extra=`<div style="margin-top:8px"><small class="err">${esc(it.reason)}</small>`;
+    if(it.row||it.ambiguous_stores){
+      const opts=it.ambiguous_stores?it.ambiguous_stores.map(t=>`<option>${esc(t)}</option>`).join(''):storeOpts(it.store);
+      extra+=`
+      <label>매장</label><select id="ss_${it.id}">${opts}</select>`;
+      if(it.candidates&&it.candidates.length){
+        extra+=`<label>빠른 선택 (맞는 년·월·일 탭 → 이 제품은 다음부터 자동 인식)</label><div class="row">`+
+          it.candidates.map(c=>`<button class="btn sec" style="flex:1;min-width:90px"
+             onclick="saveDate('${it.id}',${it.row||'null'},'${esc(it.barcode||'')}','${c}','${esc(it.amb_raw||'')}')">${koDate(c)}</button>`).join('')+`</div>`;
+      }
+      extra+=`
+      <label>또는 직접 입력</label><input type="date" id="sd_${it.id}" value="${sug&&sug.length===10?sug:''}">
+      <div style="height:8px"></div>
+      <button class="btn sec" onclick="saveWarn('${it.id}',${it.row||'null'},'${esc(it.barcode||'')}','${esc(it.amb_raw||'')}')">저장</button>
+      <div class="muted" id="sm_${it.id}"></div>`;}
+    extra+='</div>';
+  }
+  d.innerHTML=`<div class="row" style="justify-content:space-between">
+      <span class="tag ${tagCls(it.status)}">${it.status}</span>
+      <span class="muted">${it.store?esc(it.store)+(it.store_source?' ('+it.store_source+')':''):'매장?'}</span></div>
+    <div class="thumbs" style="margin:8px 0">${thumbs}</div>
+    <div class="v">${esc(it.name||it.read_name||'(이름 미상)')}</div>
+    <div class="k">바코드 ${esc(it.barcode||'-')}</div>
+    <div style="margin-top:6px">${datesRead||'<span class="muted">날짜 못 읽음</span>'}</div>
+    ${extra}`;
+  return d;
+}
+async function register(id,barcode){
+  const msg=document.getElementById('nm_'+id);msg.textContent='등록 중…';
+  const body={store:document.getElementById('ns_'+id).value,barcode:barcode,
+    name:document.getElementById('nn_'+id).value,
+    dates:[document.getElementById('nd_'+id).value].filter(Boolean)};
+  const r=await(await fetch('/api/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+  msg.innerHTML=r.ok?'✅ 등록됨':'<small class="err">'+r.error+'</small>';
+}
+function koDate(iso){const[y,m,d]=iso.split('-');return `${+m}월 ${+d}일<br><small class="muted">${iso}</small>`;}
+async function saveDate(id,row,barcode,iso,raw){
+  const msg=document.getElementById('sm_'+id);msg.textContent='저장 중…';
+  const body={store:document.getElementById('ss_'+id).value,row:row||null,barcode:barcode,raw:raw||'',writes:[{col:7,value:iso}]};
+  const r=await(await fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+  msg.innerHTML=r.ok?('✅ 저장됨 ('+iso+')'+(r.learned?' · 이 제품 날짜순서 기억함('+r.learned+') — 다음부턴 자동':'')):'<small class="err">'+r.error+'</small>';
+}
+function saveWarn(id,row,barcode,raw){
+  const val=document.getElementById('sd_'+id).value;
+  if(!val){document.getElementById('sm_'+id).textContent='날짜를 입력하세요';return;}
+  saveDate(id,row,barcode,val,raw);
+}
+
+// ---------- 임박알림 ----------
+function alItem(x,color){
+  const id='al'+Math.random().toString(36).slice(2,9);
+  const label=x.days<0?(Math.abs(x.days)+'일 지남'):('D-'+x.days);
+  return `<div class="al">
+    <div style="cursor:pointer" onclick="document.getElementById('${id}').classList.toggle('hide')">
+      <span class="d ${color}">${label}</span> &nbsp;<b>${esc(x.name)}</b><br>
+      <span class="muted">${x.exp} · ${esc(x.tab)}</span><br>
+      <span class="k">바코드 ${esc(x.barcode||'-')}</span>
+    </div>
+    <div id="${id}" class="hide row" style="margin-top:6px">
+      <button class="btn sec" style="width:auto" onclick="delDate(this,'${esc(x.tab)}','${esc(x.barcode)}','${x.exp}')">🗑 삭제(날짜 지움)</button>
+      <button class="btn sec" style="width:auto" onclick="document.getElementById('${id}').classList.add('hide')">유지</button>
+    </div></div>`;
+}
+async function delDate(btn,tab,barcode,exp){
+  if(!STATUS.live){alert('구글 연결 후 사용할 수 있어요');return;}
+  if(!confirm(exp+' 날짜를 시트에서 지울까요?'))return;
+  const r=await(await fetch('/api/clear_date',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({store:tab,barcode:barcode,date:exp})})).json();
+  if(r.ok){ const al=btn.closest('.al'); if(al) al.remove(); }
+  else alert('실패: '+(r.error||''));
+}
+async function sortSheet(){
+  if(!STATUS.live){alert('구글 연결 후 사용할 수 있어요');return;}
+  if(!confirm('두 매장 시트를 유통기한 빠른 날짜순으로 정렬할까요? (날짜 없는 상품은 맨 아래로)'))return;
+  const r=await(await fetch('/api/sort',{method:'POST'})).json();
+  alert(r.ok?('날짜순 정렬 완료: '+r.sorted.join(', ')):('실패: '+r.error));
+  if(r.ok)loadAlerts();
+}
+let ALERTS=null;
+async function loadAlerts(){
+  document.getElementById('alertsBox').innerHTML='<div class="card"><span class="spin"></span> 계산 중…</div>';
+  const r=await(await fetch('/api/alerts')).json();ALERTS=r;renderAlerts();
+}
+function renderAlerts(){
+  if(!ALERTS)return;
+  const store=document.getElementById('alStore').value;
+  const tiers=ALERTS.tiers; // [4,7,14]
+  const colOf={};colOf[tiers[0]]='red';colOf[tiers[1]]='org';colOf[tiers[2]]='yel';
+  const titleOf={};titleOf[tiers[0]]='🔴 '+tiers[0]+'일 이내';titleOf[tiers[1]]='🟠 '+tiers[1]+'일 이내';titleOf[tiers[2]]='🟡 '+tiers[2]+'일 이내';
+  const merged={};tiers.forEach(t=>merged[t]=[]);const expired=[];
+  for(const [tab,bk] of Object.entries(ALERTS.alerts)){
+    if(store&&tab!==store)continue;
+    tiers.forEach(t=>{(bk[t]||[]).forEach(x=>merged[t].push({...x,tab})); });
+    (bk['expired']||[]).forEach(x=>expired.push({...x,tab}));
+  }
+  const box=document.getElementById('alertsBox');
+  box.innerHTML=`<div class="grid3">`+tiers.map(t=>{
+    const items=merged[t].sort((a,b)=>a.days-b.days);
+    return `<div class="col card"><h3>${titleOf[t]} <span class="muted">(${items.length})</span></h3>`+
+      (items.length?items.map(x=>alItem(x,colOf[t])).join(''):'<div class="muted">없음</div>')+`</div>`;
+  }).join('')+`</div>`;
+  expired.sort((a,b)=>b.days-a.days);
+  let ehtml=`<div class="card"><h3>⚫ 이미 지남 <span class="muted">(최근 ${ALERTS.expired_window||30}일, ${expired.length}개)</span></h3>`;
+  if(expired.length){
+    const byTab={};
+    expired.forEach(x=>{(byTab[x.tab]=byTab[x.tab]||[]).push(x);});
+    for(const [tab,items] of Object.entries(byTab)){
+      ehtml+=`<div style="margin:10px 0 4px"><b>🏪 ${esc(tab)}</b> <span class="muted">(${items.length}개)</span></div>`;
+      ehtml+=items.map(x=>alItem(x,'red')).join('');
+    }
+  }else ehtml+='<div class="muted">없음</div>';
+  box.innerHTML+=ehtml+`</div>`;
+}
+
+// ---------- 설정 ----------
+async function learnStore(){
+  const f=document.getElementById('lsFile').files[0];
+  const tab=document.getElementById('lsTab').value;
+  const msg=document.getElementById('lsMsg');
+  if(!f){msg.textContent='사진을 선택하세요';return;}
+  msg.textContent='읽는 중…';
+  const fd=new FormData();fd.append('tab',tab);fd.append('label',tab);fd.append('photo',f);
+  const r=await(await fetch('/api/learn_store',{method:'POST',body:fd})).json();
+  if(r.ok){msg.innerHTML=`✅ 저장됨 (${r.lat.toFixed(5)}, ${r.lng.toFixed(5)})`;
+    STATUS.stores=(await(await fetch('/api/status')).json()).stores;renderStores();}
+  else msg.innerHTML='<small class="err">'+r.error+'</small>';
+}
+function renderStores(){
+  const el=document.getElementById('storeList');
+  el.innerHTML='<b>저장된 매장 위치</b><br>'+(STATUS.stores.length?
+    STATUS.stores.map(s=>`<div class="al">${esc(s.tab)} <span class="muted">(${s.lat.toFixed(5)}, ${s.lng.toFixed(5)})</span></div>`).join('')
+    :'<span class="muted">아직 없음 — 위에서 각 매장 사진으로 저장하세요</span>');
+}
+function renderStatus(){
+  document.getElementById('statusBox').innerHTML=
+    `모드: <b>${STATUS.live?'라이브(시트에 실제 기입)':'미리보기(구글 연결 전, 기입 안 됨)'}</b><br>
+     매장 탭: ${STATUS.tabs.map(esc).join(', ')}<br>
+     등록 상품 수: ${STATUS.product_count.toLocaleString()}개`;
+}
+if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}
+boot();
+</script>
+</body>
+</html>

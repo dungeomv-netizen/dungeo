@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>유통기한 관리기 · 로그인</title>
+<link rel="apple-touch-icon" href="/static/icon-192.png">
+<meta name="theme-color" content="#4a8dff">
+<style>
+  body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;
+       background:#0f1115;color:#e7ebf3;font-family:"Malgun Gothic",system-ui,sans-serif}
+  .box{background:#181b22;border:1px solid #2a2f3a;border-radius:16px;padding:28px 24px;width:300px;text-align:center}
+  img{width:84px;height:84px}
+  h1{font-size:18px;margin:10px 0 4px}
+  p{color:#9aa4b2;font-size:13px;margin:0 0 18px}
+  input{width:100%;box-sizing:border-box;background:#10131a;color:#e7ebf3;border:1px solid #2a2f3a;
+        border-radius:10px;padding:12px;font-size:16px;margin-bottom:10px}
+  button{width:100%;background:#4a9eff;color:#fff;border:0;border-radius:10px;padding:12px;font-size:16px;cursor:pointer}
+  .err{color:#ff5a5a;font-size:13px;margin-top:10px;min-height:16px}
+</style>
+</head>
+<body>
+  <form class="box" method="post" action="/login">
+    <img src="/static/icon-192.png" alt="">
+    <h1>🏪 유통기한 관리기</h1>
+    <p>비밀번호를 입력하세요</p>
+    <input type="password" name="pw" placeholder="비밀번호" autofocus autocomplete="current-password">
+    <button type="submit">들어가기</button>
+    <div class="err">{{ err }}</div>
+  </form>
+</body>
+</html>
