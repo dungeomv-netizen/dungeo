@@ -17,6 +17,11 @@ _GPS  = {v: k for k, v in ExifTags.GPSTAGS.items()}
 
 def load_image(raw: bytes) -> Image.Image:
     img = Image.open(io.BytesIO(raw))
+    # JPEG는 디코더가 축소 로드(draft) → 큰 폰사진도 메모리 대폭 절약(바코드는 충분히 선명)
+    try:
+        img.draft("RGB", (1600, 1600))
+    except Exception:
+        pass
     img.load()
     return img
 

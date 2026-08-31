@@ -66,7 +66,7 @@ def prep_photos(file_storages):
             barcodes = read_barcodes(img)           # 원본 해상도로 바코드
             thumb = make_thumb(img)                 # 작은 썸네일(data URI)
             vimg = img.convert("RGB")
-            vimg.thumbnail((1000, 1000))            # 비전용 축소본만 보관(메모리 절약)
+            vimg.thumbnail((900, 900))              # 비전용 축소본만 보관(메모리 절약)
         finally:
             img.close()
             del img, raw                            # 원본 즉시 해제
@@ -276,7 +276,14 @@ def process_batch(files, batch_store, sheet):
             item["reason"] = "미리보기 모드(구글 연결 전) — 실제 기입은 안 됨"
         results.append(item)
 
-    # PIL 이미지 참조 정리
+    # PIL 이미지 참조 정리 + 메모리 즉시 회수(묶음 사이 메모리 안정)
     for p in photos:
-        p.pop("_img", None)
+        img = p.pop("_img", None)
+        if img is not None:
+            try:
+                img.close()
+            except Exception:
+                pass
+    import gc
+    gc.collect()
     return results
