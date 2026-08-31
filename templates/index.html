@@ -78,9 +78,9 @@
   <!-- 업로드 -->
   <section id="up">
     <div class="card">
-      <label>이번 사진 매장</label>
+      <label>이번 사진 매장 (꼭 선택)</label>
       <select id="store">
-        <option value="">자동 (사진 GPS로 판별)</option>
+        <option value="">— 매장을 선택하세요 —</option>
       </select>
       <label>사진 (제품별로 2~3장씩, 통째로 여러 개 OK)</label>
       <input id="files" type="file" accept="image/*" multiple style="display:none">
@@ -172,22 +172,47 @@ async function reloadSheet(){
 }
 
 // ---------- 처리 ----------
-const CHUNK=6;    // 무료서버(512MB)라 한 번에 이만큼씩 자동으로 나눠 처리
+const CHUNK=15;   // 폰에서 미리 축소하므로 이만큼씩 나눠 처리
+// 폰에서 사진을 미리 줄여서 보냄(서버 메모리 절약 → 안 죽음). 바코드는 충분히 선명.
+function resizeImage(file){
+  return new Promise((resolve)=>{
+    try{
+      const url=URL.createObjectURL(file);
+      const img=new Image();
+      img.onload=()=>{
+        const max=1500, w=img.naturalWidth||img.width, h=img.naturalHeight||img.height;
+        const s=Math.min(1, max/Math.max(w,h));
+        const cw=Math.max(1,Math.round(w*s)), ch=Math.max(1,Math.round(h*s));
+        const c=document.createElement('canvas'); c.width=cw; c.height=ch;
+        c.getContext('2d').drawImage(img,0,0,cw,ch);
+        URL.revokeObjectURL(url);
+        c.toBlob(b=>resolve(b||file),'image/jpeg',0.82);
+      };
+      img.onerror=()=>{URL.revokeObjectURL(url);resolve(file);};
+      img.src=url;
+    }catch(e){ resolve(file); }
+  });
+}
 async function process(){
   if(!picked.length){alert('사진을 먼저 선택하세요 (끌어다 놓거나 클릭)');return;}
+  const store=document.getElementById('store').value;
+  if(!store){alert('먼저 "이번 사진 매장"을 선택하세요');return;}
   const go=document.getElementById('go');go.disabled=true;
   const proc=document.getElementById('proc');
-  const store=document.getElementById('store').value;
   const chunks=[];
   for(let i=0;i<picked.length;i+=CHUNK)chunks.push(picked.slice(i,i+CHUNK));
   let all=[], failed=0, done=0;
   for(let ci=0;ci<chunks.length;ci++){
+    proc.innerHTML='<span class="spin"></span> 사진 준비 중… '+done+' / '+picked.length+'장';
+    let blobs;
+    try{ blobs=await Promise.all(chunks[ci].map(f=>resizeImage(f))); }
+    catch(e){ blobs=chunks[ci]; }
     proc.innerHTML='<span class="spin"></span> 처리 중… '+done+' / '+picked.length+'장'
       +(chunks.length>1?' ('+(ci+1)+'/'+chunks.length+' 묶음)':'')+' — 닫지 말고 기다려주세요';
     const fd=new FormData();
     fd.append('store',store);
     fd.append('nosort','1');                 // 정렬은 맨 끝에 한 번만
-    for(const f of chunks[ci])fd.append('photos',f);
+    blobs.forEach((b,i)=>fd.append('photos', b, 'p'+(done+i)+'.jpg'));
     try{
       const resp=await fetch('/api/process',{method:'POST',body:fd});
       if(!resp.ok) throw new Error('서버('+resp.status+')');
