@@ -21,10 +21,13 @@ For EACH image, in the SAME order, return one object. Return STRICT JSON only:
 ]}
 Classify type: "front" = mainly the product front/name, no printed date; "date" = a printed expiry/manufacture date is visible; "other" = anything else (e.g. a barcode close-up).
 Read labels for kind: 유통기한/소비기한/EXP/BEST BEFORE/까지 => expiry ; 제조일자/제조일/MFG => manufacture. "제조일로부터 9개월" => manufacture + months_rule=9.
-Date rules: number>31 is the YEAR; number 13..31 is the DAY (remaining <=12 is month); 2-digit year => 20YY;
-expiry dates are normally today or FUTURE (if a parse gives a past expiry, try swapping day/month);
-Korean products default Y.M.D, European is D.M.Y;
-if day and month are BOTH <=12 with no clear cue, set ambiguous=true and iso=null (do NOT guess).
+DATE ORDER — this is a KOREAN store, so BE DECISIVE (do NOT ask the user):
+- Korean products are ALWAYS Year.Month.Day. Read every date as Y.M.D and ALWAYS output your best "iso".
+- number>31 or a 4-digit number => YEAR (2-digit leading year => 20YY, e.g. 26.11.05 => 2026-11-05).
+- After the year the order is MONTH then DAY (2026.06.10 => 2026-06-10 = June 10). NEVER flag month/day order for Korean dates.
+- number 13..31 => DAY. Expiry is normally today/FUTURE; if Y.M.D gives an impossible/way-past expiry, swap to fix.
+- Foreign products with year LAST (e.g. Thai/EU 07/10/2026) => Day.Month.Year.
+- Set ambiguous=true and iso=null ONLY when digits are physically unreadable (blurry/cut off/glare). NEVER for month/day order — always give the Y.M.D guess.
 Include every distinct date visible. If no date, "dates":[]. Return EXACTLY {n} objects, same order. Today is {today}."""
 
 _CHUNK = 6
