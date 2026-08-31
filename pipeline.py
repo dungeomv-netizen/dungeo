@@ -66,7 +66,7 @@ def prep_photos(file_storages):
             barcodes = read_barcodes(img)           # 원본 해상도로 바코드
             thumb = make_thumb(img)                 # 작은 썸네일(data URI)
             vimg = img.convert("RGB")
-            vimg.thumbnail((1280, 1280))            # 비전용 축소본만 보관
+            vimg.thumbnail((1000, 1000))            # 비전용 축소본만 보관(메모리 절약)
         finally:
             img.close()
             del img, raw                            # 원본 즉시 해제

@@ -80,14 +80,14 @@ class Sheet:
 
     def _load_gviz(self):
         for tab in self.tabs:
-            rows = self._gviz(tab)
+            rows = [r[:12] for r in self._gviz(tab)]   # A~L만 보관(메모리 절약)
             self._rows[tab] = rows
             self._build_index(tab, rows)
 
     def _load_live(self):
         for tab in self.tabs:
             ws = self._ws(tab)
-            rows = ws.get_all_values()
+            rows = [r[:12] for r in ws.get_all_values()]   # A~L만 보관
             self._rows[tab] = rows
             self._build_index(tab, rows)
 
