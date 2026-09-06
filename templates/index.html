@@ -342,8 +342,8 @@ function card(it){
       // 바코드를 못 읽음(굽은 병 등) → 바코드 숫자만 직접 입력하면 저장 (날짜는 이미 읽음)
       extra+=`
       <label>매장</label><select id="ss_${it.id}">${storeOpts(it.store)}</select>
-      <label>바코드 직접 입력 (바코드 밑 숫자)</label>
-      <input type="text" inputmode="numeric" id="bc_${it.id}" placeholder="예: 8801234567890">
+      <label>바코드 ${it.suggest_barcode?'(숫자 읽음 — 맞는지 확인)':'직접 입력 (바코드 밑 숫자)'}</label>
+      <input type="text" inputmode="numeric" id="bc_${it.id}" value="${esc(it.suggest_barcode||'')}" placeholder="예: 8801234567890">
       <label>유통기한 (읽은 값, 필요시 수정)</label>
       <input type="date" id="sd_${it.id}" value="${sug&&sug.length===10?sug:''}">
       <div style="height:8px"></div>

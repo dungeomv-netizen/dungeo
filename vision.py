@@ -16,9 +16,11 @@ For EACH image, in the SAME order, return one object. Return STRICT JSON only:
 {"images":[
   {"type":"front|barcode|date|other",
    "product_name":"Korean product name if the image shows the product front, else null",
+   "barcode_number":"the digits printed under/near a barcode if visible (digit string, usually 13; else null)",
    "dates":[{"kind":"expiry|manufacture|unknown","raw_text":"chars seen",
              "iso":"YYYY-MM-DD or null","months_rule":null,"ambiguous":true/false,"reason":"short"}]}
 ]}
+BARCODE NUMBER — IMPORTANT: whenever a barcode is visible, READ THE DIGITS printed under/near the bars and output them as "barcode_number" (digit string only, usually 13 digits for EAN-13, 8 for EAN-8). Read them even if the bars are curved, glared, or unscannable — the printed number is what matters. If no digits are legible, barcode_number=null.
 Classify type: "barcode" = the image is mainly a product BARCODE (a block of parallel black bars with digits), EVEN IF you cannot read the number; "date" = a printed expiry/manufacture date is visible; "front" = mainly the product front/name; "other" = anything else. If both a barcode and a date show, prefer "date" only if the date is the main subject, else "barcode".
 Read labels for kind: 유통기한/소비기한/EXP/BEST BEFORE/까지 => expiry ; 제조일자/제조일/MFG => manufacture. "제조일로부터 9개월" => manufacture + months_rule=9.
 DATE ORDER — this is a KOREAN store, so BE DECISIVE (do NOT ask the user):

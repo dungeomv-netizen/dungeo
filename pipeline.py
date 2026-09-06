@@ -178,6 +178,14 @@ def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=No
         p["vdates"] = a.get("dates", []) or []
         p["vname"] = a.get("product_name")
         p["verr"] = a.get("error")
+        # 바코드 막대가 안 읽혔으면(곡면·빛반사) 밑에 적힌 숫자를 비전이 읽은 걸 사용
+        if not p["barcodes"]:
+            vb = "".join(ch for ch in str(a.get("barcode_number") or "") if ch.isdigit())
+            if vb and len(vb) >= 8:
+                if sheet.lookup(vb) is not None:   # 시트에 있으면 확실 → 바로 사용
+                    p["barcodes"] = [vb]
+                else:
+                    p["_vbarcode"] = vb            # 시트에 없으면 후보(확인칸에 미리 채움)
         p["ptype"] = _classify(p, a)
 
     groups = group_photos(photos)
@@ -188,6 +196,7 @@ def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=No
         gid = uuid.uuid4().hex[:8]
         thumbs = [p["thumb"] for p in g]
         barcode = next((p["barcodes"][0] for p in g if p["barcodes"]), None)
+        suggest_barcode = next((p["_vbarcode"] for p in g if p.get("_vbarcode")), None)
 
         # 그룹 내 모든 사진의 날짜/제품명 집계(중복 제거)
         dates, seen = [], set()
@@ -230,6 +239,7 @@ def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=No
             "writes": [], "reason": "", "name": read_name, "row": None,
             "candidates": candidates,
             "amb_raw": (amb[0].get("raw_text") if amb else ""),
+            "suggest_barcode": suggest_barcode,
         }
         if verr:
             item["reason"] = f"날짜 인식 오류: {verr}"
