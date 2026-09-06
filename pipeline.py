@@ -157,7 +157,9 @@ def _decide_writes(exp, manu, sheet, tab, row, live):
 
 def _classify(p, a):
     if p["barcodes"]:
-        return "barcode"
+        return "barcode"                      # 숫자까지 읽힌 바코드
+    if a.get("type") == "barcode":
+        return "barcode"                      # 비전이 '바코드 사진'으로 봄(숫자는 못 읽음) → 제품 경계로
     if p.get("vdates"):
         return "date"
     if a.get("type") == "front" or p.get("vname"):

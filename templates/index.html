@@ -337,7 +337,19 @@ function card(it){
       <label>또는 직접 입력</label><input type="date" id="sd_${it.id}" value="${sug&&sug.length===10?sug:''}">
       <div style="height:8px"></div>
       <button class="btn sec" onclick="saveWarn('${it.id}',${it.row||'null'},'${esc(it.barcode||'')}','${esc(it.amb_raw||'')}')">저장</button>
-      <div class="muted" id="sm_${it.id}"></div>`;}
+      <div class="muted" id="sm_${it.id}"></div>`;
+    } else if(!it.barcode){
+      // 바코드를 못 읽음(굽은 병 등) → 바코드 숫자만 직접 입력하면 저장 (날짜는 이미 읽음)
+      extra+=`
+      <label>매장</label><select id="ss_${it.id}">${storeOpts(it.store)}</select>
+      <label>바코드 직접 입력 (바코드 밑 숫자)</label>
+      <input type="text" inputmode="numeric" id="bc_${it.id}" placeholder="예: 8801234567890">
+      <label>유통기한 (읽은 값, 필요시 수정)</label>
+      <input type="date" id="sd_${it.id}" value="${sug&&sug.length===10?sug:''}">
+      <div style="height:8px"></div>
+      <button class="btn sec" onclick="saveNoBc('${it.id}')">저장</button>
+      <div class="muted" id="sm_${it.id}"></div>`;
+    }
     extra+='</div>';
   }
   d.innerHTML=`<div class="row" style="justify-content:space-between">
@@ -364,6 +376,18 @@ async function saveDate(id,row,barcode,iso,raw){
   const body={store:document.getElementById('ss_'+id).value,row:row||null,barcode:barcode,raw:raw||'',writes:[{col:7,value:iso}]};
   const r=await(await fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
   msg.innerHTML=r.ok?('✅ 저장됨 ('+iso+')'+(r.learned?' · 이 제품 날짜순서 기억함('+r.learned+') — 다음부턴 자동':'')):'<small class="err">'+r.error+'</small>';
+}
+async function saveNoBc(id){
+  const store=document.getElementById('ss_'+id).value;
+  const bc=(document.getElementById('bc_'+id).value||'').trim();
+  const val=document.getElementById('sd_'+id).value;
+  const msg=document.getElementById('sm_'+id);
+  if(!bc){msg.textContent='바코드 숫자를 입력하세요';return;}
+  if(!val){msg.textContent='날짜를 입력하세요';return;}
+  msg.textContent='저장 중…';
+  const body={store:store,barcode:bc,writes:[{col:7,value:val}]};
+  const r=await(await fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+  msg.innerHTML=r.ok?('✅ 저장됨 ('+bc+')'):('<small class="err">'+(r.error||'실패 — 시트에 없는 바코드일 수 있어요')+'</small>');
 }
 function saveWarn(id,row,barcode,raw){
   const val=document.getElementById('sd_'+id).value;

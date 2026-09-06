@@ -14,12 +14,12 @@ _URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generate
 _PROMPT = """You are given {n} photos of Korean retail products (there may be several different products).
 For EACH image, in the SAME order, return one object. Return STRICT JSON only:
 {"images":[
-  {"type":"front|date|other",
+  {"type":"front|barcode|date|other",
    "product_name":"Korean product name if the image shows the product front, else null",
    "dates":[{"kind":"expiry|manufacture|unknown","raw_text":"chars seen",
              "iso":"YYYY-MM-DD or null","months_rule":null,"ambiguous":true/false,"reason":"short"}]}
 ]}
-Classify type: "front" = mainly the product front/name, no printed date; "date" = a printed expiry/manufacture date is visible; "other" = anything else (e.g. a barcode close-up).
+Classify type: "barcode" = the image is mainly a product BARCODE (a block of parallel black bars with digits), EVEN IF you cannot read the number; "date" = a printed expiry/manufacture date is visible; "front" = mainly the product front/name; "other" = anything else. If both a barcode and a date show, prefer "date" only if the date is the main subject, else "barcode".
 Read labels for kind: 유통기한/소비기한/EXP/BEST BEFORE/까지 => expiry ; 제조일자/제조일/MFG => manufacture. "제조일로부터 9개월" => manufacture + months_rule=9.
 DATE ORDER — this is a KOREAN store, so BE DECISIVE (do NOT ask the user):
 - Korean products are ALWAYS Year.Month.Day. Read every date as Y.M.D and ALWAYS output your best "iso".
