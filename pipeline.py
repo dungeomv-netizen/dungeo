@@ -103,17 +103,20 @@ def _decide_store(group, batch_store):
 
 
 def _pick_dates(dates):
-    exp, manu, amb = [], [], []
+    exp, manu, amb, uncertain = [], [], [], []
     for d in dates:
         if d.get("ambiguous") or not d.get("iso"):
             if d.get("raw_text"):
                 amb.append(d)
             continue
+        if d.get("uncertain"):            # 읽긴 했으나 확신 낮음(점자/흐림) → 확인받기(자동기입X)
+            uncertain.append(d)
+            continue
         if d.get("kind") == "manufacture":
             manu.append(d)
         else:  # expiry / unknown
             exp.append(d)
-    return exp, manu, amb
+    return exp, manu, amb, uncertain
 
 
 def _decide_writes(exp, manu, sheet, tab, row, live):
@@ -179,17 +182,19 @@ def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=No
         p["vdates"] = a.get("dates", []) or []
         p["vname"] = a.get("product_name")
         p["verr"] = a.get("error")
-        # 바코드 막대가 안 읽혔으면(곡면·빛반사) 밑에 적힌 숫자를 비전이 읽은 걸 활용.
-        # ★안전장치=EAN 체크섬: 통과하면 거의 100% 정확(한 자리만 틀려도 걸림) → 진짜 바코드로 사용
-        #   (굽은 병·캔도 자동 처리). 체크섬 실패=오독 가능 → 제안(확인필요 미리채움)만, 자동기입 금지.
-        if not p["barcodes"]:
-            vb = "".join(ch for ch in str(a.get("barcode_number") or "") if ch.isdigit())
-            e = to_ean13(vb) if vb else None
-            if e:
-                p["barcodes"] = [e]               # 체크섬 통과 → 진짜 바코드로 인정
-                p["_ocr_bc"] = True               # 숫자인식으로 얻음(표시용)
-            elif vb and 8 <= len(vb) <= 14:
-                p["_vbarcode"] = vb               # 체크섬 실패 → 제안만
+        # ★이중검증: 막대 해독값(zxing/폰) vs 밑에 인쇄된 숫자(비전 OCR)를 대조.
+        #  - 둘 다 있고 같음 → 확신(그대로 사용, 자동기입 OK)
+        #  - 둘 다 있는데 다름 → 막대 왜곡 오독 의심 → 인쇄숫자 우선 + 자동기입 막고 '확인필요'
+        #  - 막대만 → 그대로 / 숫자만(체크섬통과) → 숫자 사용 / 숫자만(체크섬실패) → 제안
+        bar = p["barcodes"][0] if p.get("barcodes") else None
+        vb = "".join(ch for ch in str(a.get("barcode_number") or "") if ch.isdigit())
+        ocr = to_ean13(vb) if vb else None
+        if bar and ocr and bar != ocr:
+            p["barcodes"] = [ocr]; p["_conflict"] = (bar, ocr)   # 인쇄숫자 우선, 확인받기
+        elif not bar and ocr:
+            p["barcodes"] = [ocr]; p["_ocr_bc"] = True           # 막대 안읽힘 → 인쇄숫자 사용
+        elif not bar and vb and 8 <= len(vb) <= 14:
+            p["_vbarcode"] = vb                                   # 체크섬 실패 → 제안만
         p["ptype"] = _classify(p, a)
 
     groups = group_photos(photos)
@@ -204,6 +209,7 @@ def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=No
         barcode = decoded[0] if decoded else None
         mixed_barcodes = len(decoded) >= 2   # 한 묶음에 다른 상품이 섞임 → 자동기입 금지
         ocr_bc = any(p.get("_ocr_bc") for p in g if p.get("barcodes"))  # 숫자인식으로 얻은 바코드
+        conflict = next((p["_conflict"] for p in g if p.get("_conflict")), None)  # 막대≠인쇄숫자
         suggest_barcode = next((p["_vbarcode"] for p in g if p.get("_vbarcode")), None)
 
         # 그룹 내 모든 사진의 날짜/제품명 집계(중복 제거)
@@ -217,7 +223,7 @@ def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=No
         verr = next((p["verr"] for p in g if p.get("verr")), None)
 
         tab, src, meters = _decide_store(g, batch_store)
-        exp, manu, amb = _pick_dates(dates)
+        exp, manu, amb, uncertain = _pick_dates(dates)
 
         # 저장된 제품별 날짜형식으로 애매한 것 자동해결(확인필요 안 뜨게)
         if barcode and amb:
@@ -252,6 +258,9 @@ def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=No
         }
         if verr:
             item["reason"] = f"날짜 인식 오류: {verr}"
+        if conflict:
+            item["reason"] = (item["reason"] + " / " if item["reason"] else "") + \
+                f"막대바코드({conflict[0]})와 인쇄숫자({conflict[1]})가 달라요 — 인쇄숫자 기준, 상품 숫자 확인"
 
         # 1) 바코드 못 읽음
         if not barcode:
@@ -267,7 +276,9 @@ def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=No
             results.append(item); continue
 
         found = sheet.lookup(barcode, tab)
-        sug = [d["iso"] for d in exp if d.get("iso")] or [d["iso"] for d in manu if d.get("iso")]
+        sug = ([d["iso"] for d in exp if d.get("iso")]
+               or [d["iso"] for d in uncertain if d.get("iso")]   # 확신낮은 날짜도 후보로(확인칸 미리채움)
+               or [d["iso"] for d in manu if d.get("iso")])
 
         # 2) 여러 매장에 있는 바코드인데 매장 미확정
         if isinstance(found, dict) and found.get("ambiguous"):
@@ -291,6 +302,11 @@ def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=No
         item["writes"] = writes
 
         problems = list(needs)
+        if conflict:      # 막대≠인쇄숫자 → 자동기입 금지, 사람이 확인
+            problems.append("막대 바코드와 인쇄된 숫자가 달라 확인 필요")
+        if uncertain:     # 점자/흐린 날짜 → 자동기입 금지, 읽은 값 확인받기
+            problems.append("날짜가 흐릿해요(캔·병 점자날짜 등) — 읽은 값 맞는지 확인 후 저장: "
+                            + ", ".join(d.get("iso", "") for d in uncertain))
         if amb and not writes:
             problems.append("날짜 표기가 애매해요: " + ", ".join(d.get("raw_text","") for d in amb))
         if not writes and not exp and not manu and not amb:

@@ -18,7 +18,7 @@ For EACH image, in the SAME order, return one object. Return STRICT JSON only:
    "product_name":"Korean product name if the image shows the product front, else null",
    "barcode_number":"the digits printed under/near a barcode if visible (digit string, usually 13; else null)",
    "dates":[{"kind":"expiry|manufacture|unknown","raw_text":"chars seen",
-             "iso":"YYYY-MM-DD or null","months_rule":null,"ambiguous":true/false,"reason":"short"}]}
+             "iso":"YYYY-MM-DD or null","months_rule":null,"ambiguous":true/false,"uncertain":true/false,"reason":"short"}]}
 ]}
 BARCODE NUMBER — IMPORTANT: whenever a barcode is visible, READ THE DIGITS printed under/near the bars and output them as "barcode_number" (digit string only, usually 13 digits for EAN-13, 8 for EAN-8). Read them even if the bars are curved, glared, or unscannable — the printed number is what matters. If no digits are legible, barcode_number=null.
 Classify type: "barcode" = the image is mainly a product BARCODE (a block of parallel black bars with digits), EVEN IF you cannot read the number; "date" = a printed expiry/manufacture date is visible; "front" = mainly the product front/name; "other" = anything else. If both a barcode and a date show, prefer "date" only if the date is the main subject, else "barcode".
@@ -36,6 +36,7 @@ DATE ORDER — this is a KOREAN store, so BE DECISIVE (do NOT ask the user):
 - Foreign products with year LAST (e.g. Thai/EU 07/10/2026) => Day.Month.Year.
 - YEAR-MONTH ONLY (no day printed), e.g. "2027.07" / "2027-07" / "2027.7" / "07/2027" / "2027년 7월" => use day 01 => iso "2027-07-01". (Only 2 numbers, one is a 4-digit or >31 year and the other is 1..12.)
 - Set ambiguous=true and iso=null ONLY when digits are physically unreadable (blurry/cut off/glare). NEVER for month/day order — always give the Y.M.D guess.
+CONFIDENCE — set "uncertain":true (but STILL give your best "iso") when the date is HARD to read with certainty: dot-matrix / inkjet dots / laser-etched digits on metal (can bottoms, bottle caps), or faint / low-contrast / partially glared / very small, so you are NOT 100% sure of every single digit. Set "uncertain":false for clear solid-printed dates you are fully sure of. This tells the app to ask the human to confirm instead of auto-writing a possibly-wrong date.
 Include every distinct date visible. If no date, "dates":[]. Return EXACTLY {n} objects, same order. Today is {today}."""
 
 _CHUNK = 6

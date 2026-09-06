@@ -15,6 +15,17 @@ app.secret_key = config.SECRET_KEY
 app.permanent_session_lifetime = datetime.timedelta(days=30)
 
 
+@app.after_request
+def _no_cache_html(resp):
+    # HTML(화면)은 항상 최신으로 — 브라우저가 옛 화면/스크립트를 캐시해 쓰는 것 방지
+    try:
+        if resp.mimetype == "text/html":
+            resp.headers["Cache-Control"] = "no-store, max-age=0"
+    except Exception:
+        pass
+    return resp
+
+
 @app.before_request
 def _require_login():
     if not config.APP_PASSWORD:      # 로컬(비번 미설정)은 로그인 없음

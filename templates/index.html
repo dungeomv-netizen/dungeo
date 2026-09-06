@@ -280,8 +280,24 @@ async function process(){
   });
   const files=idx.map(i=>picked[i]);
   const metas=idx.map(i=>metaAll[i]);
+  // 묶음(15장)으로 나누되, ★한 상품이 두 묶음에 걸려 쪼개지지 않게 '촬영 간격이 큰 곳(상품 경계)'에서 자름
   const chunks=[], metaChunks=[];
-  for(let i=0;i<files.length;i+=CHUNK){chunks.push(files.slice(i,i+CHUNK)); metaChunks.push(metas.slice(i,i+CHUNK));}
+  let cs=0;
+  while(cs<files.length){
+    let ce=Math.min(cs+CHUNK, files.length);
+    if(ce<files.length){
+      let bestK=ce, bestGap=-1;                    // cs+8 ~ cs+15 중 시간간격 가장 큰 지점에서 컷
+      for(let k=Math.max(cs+Math.ceil(CHUNK/2), cs+1); k<=ce; k++){
+        const tk=(metas[k]&&metas[k].ts!=null)?metas[k].ts:null;
+        const tp=(metas[k-1]&&metas[k-1].ts!=null)?metas[k-1].ts:null;
+        const g=(tk!=null&&tp!=null)?(tk-tp):0;     // 시각 없으면 간격 0(그냥 15에서 컷)
+        if(g>bestGap){bestGap=g; bestK=k;}
+      }
+      ce=bestK;
+    }
+    chunks.push(files.slice(cs,ce)); metaChunks.push(metas.slice(cs,ce));
+    cs=ce;
+  }
   let all=[], failed=0, done=0;
   for(let ci=0;ci<chunks.length;ci++){
     proc.innerHTML='<span class="spin"></span> 사진 준비 중… '+done+' / '+files.length+'장';
@@ -320,6 +336,18 @@ async function process(){
   go.disabled=false;
 }
 function esc(s){return (s||'').toString().replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));}
+function zoomImg(src){
+  let o=document.getElementById('imgzoom');
+  if(!o){
+    o=document.createElement('div');o.id='imgzoom';
+    o.style.cssText='display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9999;align-items:center;justify-content:center;padding:12px;cursor:zoom-out';
+    o.innerHTML='<img style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px">';
+    o.onclick=()=>{o.style.display='none';};
+    document.body.appendChild(o);
+  }
+  o.querySelector('img').src=src;
+  o.style.display='flex';
+}
 function storeOpts(sel){return STATUS.tabs.map(t=>`<option ${t===sel?'selected':''}>${esc(t)}</option>`).join('');}
 
 function renderResults(rs){
@@ -335,7 +363,7 @@ function renderResults(rs){
 function tagCls(s){return s==='기입완료'?'ok':s==='미리보기'?'prev':s==='미등록'?'new':'warn';}
 function card(it){
   const d=document.createElement('div');d.className='item '+tagCls(it.status);
-  const thumbs=(it.thumbs||[]).map(t=>`<img src="${t}">`).join('');
+  const thumbs=(it.thumbs||[]).map(t=>`<img src="${t}" onclick="zoomImg(this.src)" style="cursor:zoom-in">`).join('');
   const datesRead=(it.dates_read||[]).map(x=>`<span class="k">${esc(x.kind||'')}</span> ${esc(x.raw||'')} → <b>${x.iso||(x.ambiguous?'애매':'?')}</b>`).join('<br>');
   let extra='';
   if(it.status==='기입완료'||it.status==='미리보기'){
@@ -346,10 +374,12 @@ function card(it){
     extra=`<div style="margin-top:8px">
       <label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="nb_${it.id}" checked onchange="document.getElementById('ns_${it.id}').disabled=this.checked"> <b>양쪽 매장 모두 등록</b> (물건 나눠 둘 때 — 기본)</label>
       <label>한 매장만 등록할 땐 위 체크 끄고 선택</label><select id="ns_${it.id}" disabled>${storeOpts(it.store)}</select>
+      <label>바코드 <b style="color:#f2a">(상품에 적힌 숫자랑 같은지 꼭 확인 — 다르면 고치세요)</b></label>
+      <input type="text" inputmode="numeric" id="nc_${it.id}" value="${esc(it.barcode||'')}">
       <label>제품명</label><input type="text" id="nn_${it.id}" value="${esc(it.read_name||'')}">
       <label>유통기한</label><input type="date" id="nd_${it.id}" value="${(it.suggest_dates||[])[0]||''}">
       <div style="height:8px"></div>
-      <button class="btn" onclick="register('${it.id}','${esc(it.barcode)}')">＋ 새로 등록하기</button>
+      <button class="btn" onclick="register('${it.id}')">＋ 새로 등록하기</button>
       <div class="muted" id="nm_${it.id}"></div></div>`;
   }else{ // 확인필요
     let sug=(it.suggest_dates||[])[0]||((it.dates_read.find(x=>x.iso)||{}).iso||'');
@@ -392,8 +422,10 @@ function card(it){
     ${extra}`;
   return d;
 }
-async function register(id,barcode){
+async function register(id){
   const msg=document.getElementById('nm_'+id);msg.textContent='등록 중…';
+  const barcode=(document.getElementById('nc_'+id).value||'').replace(/[^0-9]/g,'');
+  if(barcode.length<8){msg.innerHTML='<small class="err">바코드 숫자를 확인하세요 (8자리 이상)</small>';return;}
   const both=document.getElementById('nb_'+id).checked;
   const body={both:both, store:document.getElementById('ns_'+id).value,barcode:barcode,
     name:document.getElementById('nn_'+id).value,
