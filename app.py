@@ -155,9 +155,17 @@ def api_register():
     d = request.get_json(force=True)
     s = get_sheet()
     try:
-        s.append_product(d["store"], d.get("category", ""), d["barcode"],
-                         d.get("name", ""), d.get("dates", []))
-        return jsonify(ok=True)
+        targets = s.tabs if d.get("both") else [d.get("store")]
+        added = []
+        for tab in targets:
+            if not tab:
+                continue
+            if s.lookup(d["barcode"], tab):     # 이미 그 매장에 있으면 중복추가 안 함
+                continue
+            s.append_product(tab, d.get("category", ""), d["barcode"],
+                             d.get("name", ""), d.get("dates", []))
+            added.append(tab)
+        return jsonify(ok=True, added=added)
     except Exception as e:
         return jsonify(ok=False, error=str(e)), 500
 

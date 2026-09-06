@@ -92,12 +92,13 @@ def prep_photos(file_storages, client_gps=None, client_barcodes=None):
 
 
 def _decide_store(group, batch_store):
-    for p in group:
+    # 사용자가 고른 매장을 무조건 우선(선택). GPS 자동판별은 폐기(신뢰불가).
+    if batch_store:
+        return batch_store, "선택", None
+    for p in group:                       # 매장 미선택시에만(구버전 호환) GPS 폴백
         tab, m = store_geo.locate(p.get("gps"))
         if tab:
             return tab, "GPS", (round(m) if m is not None else None)
-    if batch_store:
-        return batch_store, "수동배치", None
     return None, None, None
 
 

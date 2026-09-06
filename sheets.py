@@ -5,9 +5,31 @@
 - edate(제조일+N개월) 수식 감지·재작성
 - 임박 알림 계산
 """
-import csv, io, re, datetime, functools
+import csv, io, re, time, datetime, functools
 import requests
 import config
+
+
+def _api_retry(fn, *a, **kw):
+    """구글 API 일시오류(429/500/502/503)면 백오프 후 재시도. 그 외 오류는 즉시 전달."""
+    import gspread
+    last = None
+    for attempt in range(5):
+        try:
+            return fn(*a, **kw)
+        except gspread.exceptions.APIError as e:
+            code = None
+            try:
+                code = e.response.status_code
+            except Exception:
+                pass
+            if code in (429, 500, 502, 503):
+                last = e
+                time.sleep(1.5 * (attempt + 1))   # 1.5s,3s,4.5s,6s,7.5s
+                continue
+            raise
+    if last:
+        raise last
 
 _A1 = None
 def _a1(row, col):
@@ -87,7 +109,7 @@ class Sheet:
     def _load_live(self):
         for tab in self.tabs:
             ws = self._ws(tab)
-            rows = [r[:12] for r in ws.get_all_values()]   # A~L만 보관
+            rows = [r[:12] for r in _api_retry(ws.get_all_values)]   # A~L만 보관
             self._rows[tab] = rows
             self._build_index(tab, rows)
 
@@ -152,21 +174,22 @@ class Sheet:
     def cell_formula(self, tab, row, col):
         """대상 칸의 현재 수식/값 (edate 감지용). 라이브에서만."""
         try:
-            v = self._ws(tab).get(_a1(row, col), value_render_option="FORMULA")
+            v = _api_retry(self._ws(tab).get, _a1(row, col), value_render_option="FORMULA")
             return v[0][0] if v and v[0] else ""
         except Exception:
             return ""
 
     def write_cell(self, tab, row, col, value):
-        self._ws(tab).update(range_name=_a1(row, col), values=[[value]],
-                             value_input_option="USER_ENTERED")
+        ws = self._ws(tab)
+        _api_retry(ws.update, range_name=_a1(row, col), values=[[value]],
+                   value_input_option="USER_ENTERED")
 
     def sort_by_expiry(self, tab):
         """해당 매장 시트를 유통기한(G) 빠른 날짜순 정렬(헤더 제외, 빈 날짜는 맨 아래)."""
         import gspread.utils as gu
         ws = self._ws(tab)
         end = gu.rowcol_to_a1(ws.row_count, ws.col_count)   # 예: AA9030
-        ws.sort((config.COL_EXP1, "asc"), range=f"A2:{end}")
+        _api_retry(ws.sort, (config.COL_EXP1, "asc"), range=f"A2:{end}")
 
     def append_product(self, tab, category, barcode, name, dates):
         """미등록 신규 등록: 한 줄 추가. dates=[문자열...] 최대3개."""
@@ -178,7 +201,7 @@ class Sheet:
         rowvals[config.COL_NAME - 1]     = name or ""
         for i, d in enumerate(dates[:3]):
             rowvals[config.COL_EXP1 - 1 + i] = d
-        ws.append_row(rowvals, value_input_option="USER_ENTERED")
+        _api_retry(ws.append_row, rowvals, value_input_option="USER_ENTERED")
         return ws.row_count
 
     # ---------- 임박 알림 ----------
