@@ -34,6 +34,7 @@ DATE ORDER — this is a KOREAN store, so BE DECISIVE (do NOT ask the user):
 - After the year the order is MONTH then DAY (2026.06.10 => 2026-06-10 = June 10). NEVER flag month/day order for Korean dates.
 - number 13..31 => DAY. Expiry is normally today/FUTURE; if Y.M.D gives an impossible/way-past expiry, swap to fix.
 - Foreign products with year LAST (e.g. Thai/EU 07/10/2026) => Day.Month.Year.
+- YEAR-MONTH ONLY (no day printed), e.g. "2027.07" / "2027-07" / "2027.7" / "07/2027" / "2027년 7월" => use day 01 => iso "2027-07-01". (Only 2 numbers, one is a 4-digit or >31 year and the other is 1..12.)
 - Set ambiguous=true and iso=null ONLY when digits are physically unreadable (blurry/cut off/glare). NEVER for month/day order — always give the Y.M.D guess.
 Include every distinct date visible. If no date, "dates":[]. Return EXACTLY {n} objects, same order. Today is {today}."""
 
