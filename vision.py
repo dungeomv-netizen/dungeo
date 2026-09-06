@@ -22,7 +22,12 @@ For EACH image, in the SAME order, return one object. Return STRICT JSON only:
 ]}
 BARCODE NUMBER — IMPORTANT: whenever a barcode is visible, READ THE DIGITS printed under/near the bars and output them as "barcode_number" (digit string only, usually 13 digits for EAN-13, 8 for EAN-8). Read them even if the bars are curved, glared, or unscannable — the printed number is what matters. If no digits are legible, barcode_number=null.
 Classify type: "barcode" = the image is mainly a product BARCODE (a block of parallel black bars with digits), EVEN IF you cannot read the number; "date" = a printed expiry/manufacture date is visible; "front" = mainly the product front/name; "other" = anything else. If both a barcode and a date show, prefer "date" only if the date is the main subject, else "barcode".
-Read labels for kind: 유통기한/소비기한/EXP/BEST BEFORE/까지 => expiry ; 제조일자/제조일/MFG => manufacture. "제조일로부터 9개월" => manufacture + months_rule=9.
+Read labels for kind:
+- expiry: 유통기한 / 소비기한 / EXP / EXP DATE / BEST BEFORE / BB / 까지 (the "까지"/"until" date of a range).
+- manufacture: 제조일자 / 제조일 / 생산일 / MFG / PROD / PRODUCTION / 부터 (the "부터"/"from" date of a range).
+- "제조일로부터 9개월" => manufacture + months_rule=9.
+RANGE "부터 ~ 까지" (very common): the FROM/부터/PROD date is manufacture, the UNTIL/까지/EXP date is expiry. Output BOTH, each with its correct kind. NEVER label the 부터/PROD date as expiry.
+Many products print BOTH PROD and EXP (e.g. "PROD:20/07/2025 EXP:20/10/2027"): PROD=manufacture, EXP=expiry.
 DATE ORDER — this is a KOREAN store, so BE DECISIVE (do NOT ask the user):
 - Korean products are ALWAYS Year.Month.Day. Read every date as Y.M.D and ALWAYS output your best "iso".
 - number>31 or a 4-digit number => YEAR (2-digit leading year => 20YY, e.g. 26.11.05 => 2026-11-05).

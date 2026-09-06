@@ -178,14 +178,14 @@ def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=No
         p["vdates"] = a.get("dates", []) or []
         p["vname"] = a.get("product_name")
         p["verr"] = a.get("error")
-        # 바코드 막대가 안 읽혔으면(곡면·빛반사) 밑에 적힌 숫자를 비전이 읽은 걸 사용
+        # 바코드 막대가 안 읽혔으면(곡면·빛반사) 밑 숫자를 비전이 읽은 건 '제안'으로만 둠.
+        # ★절대 자동기입 키로 쓰지 않음: 바코드는 체크섬이 있어 스캐너 디코딩은 정확하지만,
+        #   눈으로 읽은 숫자는 검증이 없어 한 자리만 틀려도 시트의 '전혀 다른 실제 상품'과
+        #   맞아떨어져 남의 행을 덮어씀. → 제안만 하고 사람이 확인 후 저장(확인필요).
         if not p["barcodes"]:
             vb = "".join(ch for ch in str(a.get("barcode_number") or "") if ch.isdigit())
-            if vb and len(vb) >= 8:
-                if sheet.lookup(vb) is not None:   # 시트에 있으면 확실 → 바로 사용
-                    p["barcodes"] = [vb]
-                else:
-                    p["_vbarcode"] = vb            # 시트에 없으면 후보(확인칸에 미리 채움)
+            if vb and 8 <= len(vb) <= 14:
+                p["_vbarcode"] = vb               # 제안(확인칸 미리채움)만, 자동매칭 금지
         p["ptype"] = _classify(p, a)
 
     groups = group_photos(photos)
@@ -195,7 +195,10 @@ def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=No
     for g in groups:
         gid = uuid.uuid4().hex[:8]
         thumbs = [p["thumb"] for p in g]
-        barcode = next((p["barcodes"][0] for p in g if p["barcodes"]), None)
+        # 그룹 안의 '실제 디코딩된' 바코드들(체크섬 통과 → 신뢰). OCR 숫자는 여기 없음.
+        decoded = list(dict.fromkeys(p["barcodes"][0] for p in g if p.get("barcodes")))
+        barcode = decoded[0] if decoded else None
+        mixed_barcodes = len(decoded) >= 2   # 한 묶음에 다른 상품이 섞임 → 자동기입 금지
         suggest_barcode = next((p["_vbarcode"] for p in g if p.get("_vbarcode")), None)
 
         # 그룹 내 모든 사진의 날짜/제품명 집계(중복 제거)
@@ -248,6 +251,13 @@ def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=No
         if not barcode:
             item["status"] = "확인필요"
             item["reason"] = (item["reason"] + " / " if item["reason"] else "") + "바코드를 못 읽었어요"
+            results.append(item); continue
+
+        # 1.5) 한 묶음에 서로 다른 실제 바코드가 섞임 → 자동기입 금지(확인필요)
+        if mixed_barcodes:
+            item["status"] = "확인필요"
+            item["reason"] = "한 묶음에 여러 상품 바코드가 섞였어요 — 상품별로 다시 확인하세요"
+            item["mixed"] = list(decoded)
             results.append(item); continue
 
         found = sheet.lookup(barcode, tab)
