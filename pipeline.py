@@ -3,7 +3,7 @@
 import re, uuid, datetime
 import config, vision, store_geo, date_prefs
 from imaging import load_image, read_exif, make_thumb
-from barcode_read import read_barcodes
+from barcode_read import read_barcodes, to_ean13
 from grouping import group_photos
 
 COL_LETTER = "ABCDEFGHI"
@@ -178,14 +178,17 @@ def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=No
         p["vdates"] = a.get("dates", []) or []
         p["vname"] = a.get("product_name")
         p["verr"] = a.get("error")
-        # 바코드 막대가 안 읽혔으면(곡면·빛반사) 밑 숫자를 비전이 읽은 건 '제안'으로만 둠.
-        # ★절대 자동기입 키로 쓰지 않음: 바코드는 체크섬이 있어 스캐너 디코딩은 정확하지만,
-        #   눈으로 읽은 숫자는 검증이 없어 한 자리만 틀려도 시트의 '전혀 다른 실제 상품'과
-        #   맞아떨어져 남의 행을 덮어씀. → 제안만 하고 사람이 확인 후 저장(확인필요).
+        # 바코드 막대가 안 읽혔으면(곡면·빛반사) 밑에 적힌 숫자를 비전이 읽은 걸 활용.
+        # ★안전장치=EAN 체크섬: 통과하면 거의 100% 정확(한 자리만 틀려도 걸림) → 진짜 바코드로 사용
+        #   (굽은 병·캔도 자동 처리). 체크섬 실패=오독 가능 → 제안(확인필요 미리채움)만, 자동기입 금지.
         if not p["barcodes"]:
             vb = "".join(ch for ch in str(a.get("barcode_number") or "") if ch.isdigit())
-            if vb and 8 <= len(vb) <= 14:
-                p["_vbarcode"] = vb               # 제안(확인칸 미리채움)만, 자동매칭 금지
+            e = to_ean13(vb) if vb else None
+            if e:
+                p["barcodes"] = [e]               # 체크섬 통과 → 진짜 바코드로 인정
+                p["_ocr_bc"] = True               # 숫자인식으로 얻음(표시용)
+            elif vb and 8 <= len(vb) <= 14:
+                p["_vbarcode"] = vb               # 체크섬 실패 → 제안만
         p["ptype"] = _classify(p, a)
 
     groups = group_photos(photos)
@@ -199,6 +202,7 @@ def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=No
         decoded = list(dict.fromkeys(p["barcodes"][0] for p in g if p.get("barcodes")))
         barcode = decoded[0] if decoded else None
         mixed_barcodes = len(decoded) >= 2   # 한 묶음에 다른 상품이 섞임 → 자동기입 금지
+        ocr_bc = any(p.get("_ocr_bc") for p in g if p.get("barcodes"))  # 숫자인식으로 얻은 바코드
         suggest_barcode = next((p["_vbarcode"] for p in g if p.get("_vbarcode")), None)
 
         # 그룹 내 모든 사진의 날짜/제품명 집계(중복 제거)
@@ -243,6 +247,7 @@ def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=No
             "candidates": candidates,
             "amb_raw": (amb[0].get("raw_text") if amb else ""),
             "suggest_barcode": suggest_barcode,
+            "barcode_from_ocr": ocr_bc,
         }
         if verr:
             item["reason"] = f"날짜 인식 오류: {verr}"
