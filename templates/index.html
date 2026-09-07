@@ -172,7 +172,7 @@ async function reloadSheet(){
 }
 
 // ---------- 처리 ----------
-const CHUNK=15;   // 폰에서 미리 축소하므로 이만큼씩 나눠 처리
+const CHUNK=8;   // 무료 서버(0.1CPU·512MB)가 100초 제한 안에 처리 가능한 크기(8장=검증됨). 크면 묶음 전부 실패
 // 사진 줄이기 전에 원본 EXIF에서 GPS + 촬영시각(DateTimeOriginal)을 읽음.
 // 촬영시각 → 업로드 순서가 뒤죽박죽이어도 '바코드→날짜' 순으로 자동정렬하는 데 씀. 실패시 null → 안전.
 async function readMeta(file){
