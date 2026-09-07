@@ -48,7 +48,7 @@ def norm_barcode(s):
 
 
 def _parse_date(s):
-    s = (s or "").strip()
+    s = str(s or "").strip()
     if not s:
         return None
     for fmt in ("%Y-%m-%d", "%Y.%m.%d", "%Y/%m/%d", "%Y-%m-%d %H:%M:%S"):
@@ -175,7 +175,7 @@ class Sheet:
         """대상 칸의 현재 수식/값 (edate 감지용). 라이브에서만."""
         try:
             v = _api_retry(self._ws(tab).get, _a1(row, col), value_render_option="FORMULA")
-            return v[0][0] if v and v[0] else ""
+            return str(v[0][0]) if v and v[0] else ""
         except Exception:
             return ""
 

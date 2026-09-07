@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>유통기한 관리기</title>
+<script src="https://accounts.google.com/gsi/client" async></script>
 <link rel="manifest" href="/static/manifest.json">
 <meta name="theme-color" content="#4a8dff">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -89,6 +90,9 @@
       </div>
       <div style="height:10px"></div>
       <button class="btn" id="go" onclick="process()">처리하기</button>
+      <div style="height:10px"></div>
+      <button class="btn sec" id="gpbtn" onclick="gphotosStart()">📷 구글 포토에서 가져오기 (PC)</button>
+      <button class="btn" id="gpimport" onclick="gphotosImport()" style="display:none;margin-top:8px;background:#2a7">✅ 사진 다 골랐어요 — 가져오기</button>
       <div id="proc" class="muted" style="margin-top:10px"></div>
     </div>
     <div id="results"></div>
@@ -131,6 +135,53 @@
 
 <script>
 let STATUS={live:false,tabs:[],stores:[],product_count:0};
+
+// ===== 구글 포토에서 가져오기 (PC) =====
+const GPHOTOS_CLIENT_ID='{{ gphotos_client_id }}';
+let _gToken=null, _gSession=null, _gTokenClient=null;
+function _getGToken(cb){
+  if(_gToken){cb(_gToken);return;}
+  if(!window.google||!google.accounts||!google.accounts.oauth2){
+    alert('구글 로그인 모듈 로딩 중이에요. 잠깐 뒤 다시 눌러주세요');return;
+  }
+  _gTokenClient=google.accounts.oauth2.initTokenClient({
+    client_id:GPHOTOS_CLIENT_ID,
+    scope:'https://www.googleapis.com/auth/photospicker.mediaitems.readonly',
+    callback:(resp)=>{ if(resp&&resp.access_token){_gToken=resp.access_token; cb(_gToken);}
+                       else alert('구글 로그인이 취소됐어요'); }
+  });
+  _gTokenClient.requestAccessToken();
+}
+async function gphotosStart(){
+  const store=document.getElementById('store').value;
+  if(!store){alert('먼저 매장을 선택하세요 (위 "이번 사진 매장")');return;}
+  _getGToken(async(token)=>{
+    const proc=document.getElementById('proc'); proc.innerHTML='<span class="spin"></span> 구글 포토 창 여는 중…';
+    try{
+      const r=await(await fetch('/api/gphotos/session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token})})).json();
+      if(!r.ok){proc.innerHTML='';alert('세션 생성 실패: '+(r.error||''));return;}
+      _gSession=r.session_id;
+      window.open(r.picker_uri,'_blank');   // 구글 포토 선택창 새 탭
+      proc.innerHTML='구글 포토 창에서 사진을 고른 뒤 → 아래 <b>[사진 다 골랐어요 — 가져오기]</b> 버튼을 누르세요';
+      document.getElementById('gpimport').style.display='block';
+    }catch(e){proc.innerHTML='';alert('오류: '+e);}
+  });
+}
+async function gphotosImport(){
+  const store=document.getElementById('store').value;
+  if(!store){alert('매장을 선택하세요');return;}
+  if(!_gToken||!_gSession){alert('먼저 "구글 포토에서 가져오기"를 누르세요');return;}
+  const proc=document.getElementById('proc'); proc.innerHTML='<span class="spin"></span> 구글 포토에서 가져와 처리 중… (닫지 말고 기다려주세요)';
+  try{
+    const r=await(await fetch('/api/gphotos/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:_gToken,session_id:_gSession,store})})).json();
+    if(r.pending){proc.innerHTML='';alert('아직 사진을 안 고르셨어요.\n구글 포토 창에서 사진 고르고 완료한 뒤 다시 [가져오기]를 눌러주세요');return;}
+    if(!r.ok){proc.innerHTML='';alert('가져오기 실패: '+(r.error||''));return;}
+    proc.innerHTML='완료: <b>'+(r.count||0)+'장</b> 가져와 처리함';
+    document.getElementById('gpimport').style.display='none';
+    _gSession=null;
+    renderResults(r.results||[]);
+  }catch(e){proc.innerHTML='';alert('오류: '+e);}
+}
 
 async function boot(){
   STATUS=await (await fetch('/api/status')).json();
@@ -344,18 +395,23 @@ async function process(){
   go.disabled=false;
 }
 function esc(s){return (s||'').toString().replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));}
+function _closeZoom(){ const o=document.getElementById('imgzoom'); if(o) o.style.display='none'; }
 function zoomImg(src){
   let o=document.getElementById('imgzoom');
   if(!o){
     o=document.createElement('div');o.id='imgzoom';
     o.style.cssText='display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9999;align-items:center;justify-content:center;padding:12px;cursor:zoom-out';
     o.innerHTML='<img style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px">';
-    o.onclick=()=>{o.style.display='none';};
+    // 확대창 클릭 → 뒤로가기 상태 소비하며 닫기(페이지 리셋 안 됨)
+    o.onclick=()=>{ if(history.state&&history.state.zoom){history.back();} else {_closeZoom();} };
     document.body.appendChild(o);
   }
   o.querySelector('img').src=src;
   o.style.display='flex';
+  history.pushState({zoom:1},'');   // ★뒤로가기 한 번은 '확대 닫기'로 소비 → 홈으로 안 나감
 }
+// 뒤로가기(popstate) → 확대창 열려있으면 그것만 닫음
+window.addEventListener('popstate', ()=>{ _closeZoom(); });
 function storeOpts(sel){return STATUS.tabs.map(t=>`<option ${t===sel?'selected':''}>${esc(t)}</option>`).join('');}
 
 function renderResults(rs){

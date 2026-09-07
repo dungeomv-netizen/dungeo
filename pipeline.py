@@ -11,12 +11,12 @@ COL_NAME_KO = {config.COL_EXP1: "유통기한", config.COL_EXP2: "유통기한2"
 
 
 def _looks_like_date(s):
-    s = (s or "").strip()
+    s = str(s or "").strip()
     return bool(re.match(r"\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}", s))
 
 
 def _edate_months(formula):
-    m = re.search(r"edate\s*\([^,]*,\s*(\d+)\s*\)", formula or "", re.I)
+    m = re.search(r"edate\s*\(.*,\s*(\d+)\s*\)", str(formula or ""), re.I)
     return int(m.group(1)) if m else None
 
 
@@ -24,7 +24,7 @@ def date_candidates(raw, today=None):
     """애매한 날짜문자열에서 '말이 되는' 후보 날짜들을 뽑음(월/일 순서 등).
     예: '06-08-27' -> ['2027-06-08','2027-08-06'] (탭으로 고르게)"""
     today = today or datetime.date.today()
-    nums = re.findall(r"\d+", raw or "")
+    nums = re.findall(r"\d+", str(raw or ""))
     toks = None
     if len(nums) == 1 and len(nums[0]) == 8:          # YYYYMMDD
         s = nums[0]; toks = [int(s[:4]), int(s[4:6]), int(s[6:8])]
@@ -51,12 +51,13 @@ def date_candidates(raw, today=None):
     return [d.isoformat() for d in sorted(cands)][:4]
 
 
-def prep_photos(file_storages, client_gps=None, client_barcodes=None):
+def prep_photos(file_storages, client_gps=None, client_barcodes=None, client_ts=None):
     """업로드 파일을 한 장씩 읽어 처리 후 원본을 즉시 버림(메모리 절약).
     바코드/EXIF는 원본 해상도로, 비전용은 축소본만 보관.
-    client_gps/client_barcodes: 폰에서 축소 전 읽어 보낸 사진별 값(없으면 None)."""
+    client_gps/client_barcodes/client_ts: 폰·구글포토에서 미리 읽어 보낸 사진별 값(없으면 None)."""
     client_gps = client_gps or []
     client_barcodes = client_barcodes or []
+    client_ts = client_ts or []
     photos = []
     for i, fs in enumerate(file_storages):
         try:
@@ -66,6 +67,8 @@ def prep_photos(file_storages, client_gps=None, client_barcodes=None):
             continue
         try:
             taken_at, gps = read_exif(img)          # 원본에서 촬영시각·GPS
+            if taken_at is None and i < len(client_ts) and client_ts[i] is not None:
+                taken_at = client_ts[i]             # 구글포토 createTime 등(축소본엔 EXIF 없음)
             if not gps and i < len(client_gps) and client_gps[i]:
                 try:
                     cg = client_gps[i]
@@ -160,42 +163,54 @@ def _decide_writes(exp, manu, sheet, tab, row, live):
 
 
 def _classify(p, a):
+    t = a.get("type")
     if p["barcodes"]:
-        return "barcode"                      # 숫자까지 읽힌 바코드
-    if a.get("type") == "barcode":
+        return "barcode"                      # 실제 디코딩된 바코드 → 무조건 바코드(경계 앵커)
+    if t == "barcode":
         return "barcode"                      # 비전이 '바코드 사진'으로 봄(숫자는 못 읽음) → 제품 경계로
-    if p.get("vdates"):
+    if t == "front":
+        return "front"                        # ★비전이 '앞면'이라 하면 앞면 — 포장에 날짜가 보여도 무시
+    if t == "date" or p.get("vdates"):
         return "date"
-    if a.get("type") == "front" or p.get("vname"):
-        return "front"
-    return a.get("type", "other")
+    if p.get("vname"):
+        return "front"                        # 이름만 준 경우도 앞면(상표) 취급
+    return t or "other"
 
 
 def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=None,
-                  client_groups=None):
+                  client_groups=None, client_ts=None):
     today = datetime.date.today().isoformat()
     tdate = datetime.date.fromisoformat(today)
-    photos = prep_photos(files, client_gps=client_gps, client_barcodes=client_barcodes)
+    photos = prep_photos(files, client_gps=client_gps, client_barcodes=client_barcodes, client_ts=client_ts)
 
     # 사진별 비전 분석(한 번에): 종류/날짜/제품명
     analyses = vision.analyze_images([p["_img"] for p in photos], today)
     for p, a in zip(photos, analyses):
-        p["vdates"] = a.get("dates", []) or []
+        vds = a.get("dates", []) or []
+        for _d in vds:                     # 비전이 숫자로 준 값 방지 → 문자열로 통일
+            if isinstance(_d, dict):
+                for _k in ("raw_text", "iso", "kind", "reason"):
+                    if _d.get(_k) is not None:
+                        _d[_k] = str(_d[_k])
+        p["vdates"] = [d for d in vds if isinstance(d, dict)]
         p["vname"] = a.get("product_name")
         p["verr"] = a.get("error")
         # ★이중검증: 막대 해독값(zxing/폰) vs 밑에 인쇄된 숫자(비전 OCR)를 대조.
         #  - 둘 다 있고 같음 → 확신(그대로 사용, 자동기입 OK)
         #  - 둘 다 있는데 다름 → 막대 왜곡 오독 의심 → 인쇄숫자 우선 + 자동기입 막고 '확인필요'
         #  - 막대만 → 그대로 / 숫자만(체크섬통과) → 숫자 사용 / 숫자만(체크섬실패) → 제안
+        # ★앞면(상표) 사진 판별: 비전이 front 라 했거나 제품명을 준 사진.
+        #  앞면은 '이름 채우기'용일 뿐 — 포장의 작은 바코드/날짜로 그룹·기입을 망치지 않게 격리.
+        is_front = (a.get("type") == "front") or bool(a.get("product_name"))
         bar = p["barcodes"][0] if p.get("barcodes") else None
         vb = "".join(ch for ch in str(a.get("barcode_number") or "") if ch.isdigit())
         ocr = to_ean13(vb) if vb else None
         if bar and ocr and bar != ocr:
             p["barcodes"] = [ocr]; p["_conflict"] = (bar, ocr)   # 인쇄숫자 우선, 확인받기
-        elif not bar and ocr:
-            p["barcodes"] = [ocr]; p["_ocr_bc"] = True           # 막대 안읽힘 → 인쇄숫자 사용
-        elif not bar and vb and 8 <= len(vb) <= 14:
-            p["_vbarcode"] = vb                                   # 체크섬 실패 → 제안만
+        elif not bar and ocr and not is_front:
+            p["barcodes"] = [ocr]; p["_ocr_bc"] = True           # 막대 안읽힘 → 인쇄숫자 사용(앞면 제외)
+        elif not bar and vb and 8 <= len(vb) <= 14 and not is_front:
+            p["_vbarcode"] = vb                                   # 체크섬 실패 → 제안만(앞면 제외)
         p["ptype"] = _classify(p, a)
 
     # ★그룹핑: 클라이언트가 촬영시각 클러스터로 정한 그룹번호가 있으면 그대로 묶음(순서 안 타서 제일 튼튼).
@@ -226,6 +241,8 @@ def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=No
         # 그룹 내 모든 사진의 날짜/제품명 집계(중복 제거)
         dates, seen = [], set()
         for p in g:
+            if p.get("ptype") == "front":
+                continue                     # ★앞면(상표) 포장에 찍힌 날짜는 무시 — 날짜는 전용 날짜사진에서만
             for d in p.get("vdates", []):
                 key = d.get("iso") or d.get("raw_text")
                 if key and key not in seen:

@@ -19,6 +19,9 @@ APP_PASSWORD        = os.getenv("APP_PASSWORD", "").strip()      # 비어있으�
 SECRET_KEY          = os.getenv("SECRET_KEY", "local-dev-secret")
 # 서비스계정 키: 클라우드는 환경변수(JSON 문자열)로, 로컬은 파일로
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "").strip()
+# 구글 포토 불러오기(Picker) OAuth 클라이언트 ID (공개값 — 브라우저에 노출돼도 안전)
+GPHOTOS_CLIENT_ID = os.getenv("GPHOTOS_CLIENT_ID",
+    "270896581443-rvu421cvc3hid436cg4lh8aejqquc7g5.apps.googleusercontent.com").strip()
 ALERT_DAYS          = [int(x) for x in os.getenv("ALERT_DAYS", "14,7,4").split(",") if x.strip()]
 EXPIRED_WINDOW_DAYS = int(os.getenv("EXPIRED_WINDOW_DAYS", "30"))  # 이미 지난 것: 최근 N일까지만 표시
 

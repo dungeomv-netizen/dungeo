@@ -41,7 +41,7 @@ def _norm(bc):
 
 
 def _tokens(raw):
-    nums = re.findall(r"\d+", raw or "")
+    nums = re.findall(r"\d+", str(raw or ""))
     if len(nums) == 1 and len(nums[0]) == 8:
         s = nums[0]; return [int(s[:4]), int(s[4:6]), int(s[6:8])]
     if len(nums) == 1 and len(nums[0]) == 6:

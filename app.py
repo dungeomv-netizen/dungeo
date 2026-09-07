@@ -71,7 +71,8 @@ def index():
     return render_template("index.html",
                            live=config.live_mode(),
                            tabs=s.tabs,
-                           stores=store_geo.load_stores())
+                           stores=store_geo.load_stores(),
+                           gphotos_client_id=config.GPHOTOS_CLIENT_ID)
 
 
 _SW_JS = """
@@ -143,6 +144,107 @@ def api_process():
             if sorted_tabs:
                 SHEET = Sheet().load()   # 행 순서 바뀜 → 인덱스 갱신
         return jsonify(ok=True, live=config.live_mode(), results=results, sorted_tabs=sorted_tabs)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify(ok=False, error=str(e)), 500
+
+
+class _MemFile:
+    """다운로드한 바이트를 process_batch가 받는 파일객체처럼 감싸기."""
+    def __init__(self, data, name):
+        self._d = data
+        self.filename = name
+    def read(self):
+        return self._d
+
+
+def _parse_ct(s):
+    """구글포토 createTime(ISO8601) → naive datetime. 실패시 None."""
+    if not s:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(str(s).replace("Z", "+00:00")).replace(tzinfo=None)
+    except Exception:
+        try:
+            return datetime.datetime.strptime(str(s)[:19], "%Y-%m-%dT%H:%M:%S")
+        except Exception:
+            return None
+
+
+def _sort_touched(results):
+    """기입된 매장 유통기한순 정렬 + 인덱스 갱신(공용)."""
+    global SHEET
+    tabs = []
+    if config.live_mode():
+        touched = {r.get("store") for r in results
+                   if r.get("status") == "기입완료" and r.get("store")}
+        for t in touched:
+            try:
+                get_sheet().sort_by_expiry(t); tabs.append(t)
+            except Exception:
+                traceback.print_exc()
+        if tabs:
+            SHEET = Sheet().load()
+    return tabs
+
+
+@app.route("/api/gphotos/session", methods=["POST"])
+def gphotos_session():
+    """구글 포토 선택창(세션) 만들기. 브라우저가 받은 토큰을 넘겨줌."""
+    if not config.live_mode():
+        return jsonify(ok=False, error="구글 연결 전이라 불가(미리보기 모드)"), 400
+    d = request.get_json(force=True)
+    token = (d.get("token") or "").strip()
+    if not token:
+        return jsonify(ok=False, error="구글 로그인 토큰이 없어요"), 400
+    import gphotos
+    try:
+        sid, uri = gphotos.create_session(token)
+        return jsonify(ok=True, session_id=sid, picker_uri=uri)
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify(ok=False, error=str(e)), 500
+
+
+@app.route("/api/gphotos/import", methods=["POST"])
+def gphotos_import():
+    """사용자가 구글 포토에서 고른 사진을 가져와 처리(=업로드와 동일 파이프라인)."""
+    if not config.live_mode():
+        return jsonify(ok=False, error="구글 연결 전이라 불가(미리보기 모드)"), 400
+    d = request.get_json(force=True)
+    token = (d.get("token") or "").strip()
+    sid = (d.get("session_id") or "").strip()
+    store = (d.get("store") or "").strip()
+    if not token or not sid:
+        return jsonify(ok=False, error="토큰/세션이 없어요"), 400
+    import gphotos
+    try:
+        sess = gphotos.get_session(token, sid)
+        if not sess.get("mediaItemsSet"):
+            return jsonify(ok=True, pending=True)   # 아직 사진 안 고름
+        items = gphotos.list_media(token, sid)
+        items.sort(key=lambda x: x.get("createTime") or "")   # 촬영시각 순 → 바코드→날짜 순서
+        files, cts = [], []
+        for it in items:
+            mf = it.get("mediaFile") or {}
+            bu = mf.get("baseUrl")
+            if not bu:
+                continue
+            if not str(mf.get("mimeType", "")).startswith("image/"):
+                continue                          # 동영상 등 제외
+            try:
+                data = gphotos.download(token, bu)
+            except Exception:
+                traceback.print_exc(); continue
+            files.append(_MemFile(data, mf.get("filename") or (it.get("id", "img") + ".jpg")))
+            cts.append(_parse_ct(it.get("createTime")))   # 촬영시각(제품경계 판단용)
+        gphotos.delete_session(token, sid)
+        if not files:
+            return jsonify(ok=True, results=[], count=0, pending=False)
+        s = get_sheet()
+        results = process_batch(files, store, s, client_ts=cts)
+        sorted_tabs = _sort_touched(results)
+        return jsonify(ok=True, results=results, count=len(files), sorted_tabs=sorted_tabs, pending=False)
     except Exception as e:
         traceback.print_exc()
         return jsonify(ok=False, error=str(e)), 500
