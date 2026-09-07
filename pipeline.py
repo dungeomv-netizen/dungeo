@@ -171,7 +171,8 @@ def _classify(p, a):
     return a.get("type", "other")
 
 
-def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=None):
+def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=None,
+                  client_groups=None):
     today = datetime.date.today().isoformat()
     tdate = datetime.date.fromisoformat(today)
     photos = prep_photos(files, client_gps=client_gps, client_barcodes=client_barcodes)
@@ -197,7 +198,17 @@ def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=No
             p["_vbarcode"] = vb                                   # 체크섬 실패 → 제안만
         p["ptype"] = _classify(p, a)
 
-    groups = group_photos(photos)
+    # ★그룹핑: 클라이언트가 촬영시각 클러스터로 정한 그룹번호가 있으면 그대로 묶음(순서 안 타서 제일 튼튼).
+    #  없으면(구버전 호환) 서버가 바코드-앵커 방식으로 묶음.
+    if client_groups and len(client_groups) >= len(photos):
+        from collections import OrderedDict
+        gmap = OrderedDict()
+        for p in photos:
+            gi = client_groups[p["index"]] if p["index"] < len(client_groups) else f"_{p['index']}"
+            gmap.setdefault(gi, []).append(p)
+        groups = list(gmap.values())
+    else:
+        groups = group_photos(photos)
     live = config.live_mode()
     results = []
 
@@ -276,9 +287,11 @@ def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=No
             results.append(item); continue
 
         found = sheet.lookup(barcode, tab)
+        # 확인필요 카드 미리채움: 유통기한(exp) 우선 → 흐린날짜 → (마지막)제조일
         sug = ([d["iso"] for d in exp if d.get("iso")]
                or [d["iso"] for d in uncertain if d.get("iso")]   # 확신낮은 날짜도 후보로(확인칸 미리채움)
                or [d["iso"] for d in manu if d.get("iso")])
+        item["suggest_dates"] = sug        # 모든 확인필요 카드가 유통기한 우선으로 미리채워지게
 
         # 2) 여러 매장에 있는 바코드인데 매장 미확정
         if isinstance(found, dict) and found.get("ambiguous"):

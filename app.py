@@ -122,8 +122,13 @@ def api_process():
             client_barcodes = json.loads(request.form.get("barcodes", "") or "[]")
         except Exception:
             client_barcodes = []
+        try:
+            client_groups = json.loads(request.form.get("groups", "") or "[]")
+        except Exception:
+            client_groups = []
         results = process_batch(fs_list, batch_store, s,
-                                client_gps=client_gps, client_barcodes=client_barcodes)
+                                client_gps=client_gps, client_barcodes=client_barcodes,
+                                client_groups=client_groups)
         # 작업 끝나면 기입된 매장을 유통기한 날짜순으로 정렬
         # (여러 묶음으로 나눠 올릴 땐 nosort=1 로 생략하고, 맨 끝에 /api/sort 한 번만)
         sorted_tabs = []

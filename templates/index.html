@@ -280,23 +280,30 @@ async function process(){
   });
   const files=idx.map(i=>picked[i]);
   const metas=idx.map(i=>metaAll[i]);
-  // 묶음(15장)으로 나누되, ★한 상품이 두 묶음에 걸려 쪼개지지 않게 '촬영 간격이 큰 곳(상품 경계)'에서 자름
-  const chunks=[], metaChunks=[];
-  let cs=0;
-  while(cs<files.length){
-    let ce=Math.min(cs+CHUNK, files.length);
-    if(ce<files.length){
-      let bestK=ce, bestGap=-1;                    // cs+8 ~ cs+15 중 시간간격 가장 큰 지점에서 컷
-      for(let k=Math.max(cs+Math.ceil(CHUNK/2), cs+1); k<=ce; k++){
-        const tk=(metas[k]&&metas[k].ts!=null)?metas[k].ts:null;
-        const tp=(metas[k-1]&&metas[k-1].ts!=null)?metas[k-1].ts:null;
-        const g=(tk!=null&&tp!=null)?(tk-tp):0;     // 시각 없으면 간격 0(그냥 15에서 컷)
-        if(g>bestGap){bestGap=g; bestK=k;}
-      }
-      ce=bestK;
+  // ★상품 클러스터: 촬영간격이 큰 곳(상품 사이)에서 나눔 → 한 상품 사진들은 같은 번호
+  const GAPMS=5000;                    // 5초 이상 벌어지면 다른 상품(시각 없으면 경계로=안전)
+  const cluster=new Array(files.length); let cid=0;
+  for(let k=0;k<files.length;k++){
+    if(k>0){
+      const tk=metas[k]&&metas[k].ts, tp=metas[k-1]&&metas[k-1].ts;
+      const g=(tk!=null&&tp!=null)?(tk-tp):Infinity;
+      if(g>=GAPMS) cid++;
     }
-    chunks.push(files.slice(cs,ce)); metaChunks.push(metas.slice(cs,ce));
-    cs=ce;
+    cluster[k]=cid;
+  }
+  // 묶음(chunk)은 ★상품(클러스터)을 절대 쪼개지 않고 ~CHUNK장씩 팩. 서버엔 그룹번호(cluster)도 보냄
+  const chunks=[], metaChunks=[], groupChunks=[];
+  let s=0;
+  while(s<files.length){
+    let e=s;
+    while(e<files.length){
+      let ce=e; while(ce<files.length && cluster[ce]===cluster[e]) ce++;  // 이 클러스터 끝
+      if(e>s && ce-s>CHUNK) break;     // 최소 한 상품은 담고, 넘치면 상품경계서 컷
+      e=ce;
+    }
+    if(e===s){ let ce=s; while(ce<files.length && cluster[ce]===cluster[s]) ce++; e=ce; } // 한 상품이 CHUNK↑면 통째
+    chunks.push(files.slice(s,e)); metaChunks.push(metas.slice(s,e)); groupChunks.push(cluster.slice(s,e));
+    s=e;
   }
   let all=[], failed=0, done=0;
   for(let ci=0;ci<chunks.length;ci++){
@@ -314,6 +321,7 @@ async function process(){
     fd.append('nosort','1');                 // 정렬은 맨 끝에 한 번만
     fd.append('gps', JSON.stringify(gpsArr||[]));       // 사진별 GPS(자동 매장판별용)
     fd.append('barcodes', JSON.stringify(bcArr||[]));   // 사진별 바코드(폰이 원본에서 읽음)
+    fd.append('groups', JSON.stringify(groupChunks[ci]||[]));  // 사진별 상품그룹번호(서버가 이대로 묶음)
     blobs.forEach((b,i)=>fd.append('photos', b, 'p'+(done+i)+'.jpg'));
     try{
       const resp=await fetch('/api/process',{method:'POST',body:fd});
@@ -382,7 +390,7 @@ function card(it){
       <button class="btn" onclick="register('${it.id}')">＋ 새로 등록하기</button>
       <div class="muted" id="nm_${it.id}"></div></div>`;
   }else{ // 확인필요
-    let sug=(it.suggest_dates||[])[0]||((it.dates_read.find(x=>x.iso)||{}).iso||'');
+    let sug=(it.suggest_dates||[])[0]||((it.dates_read.find(x=>x.iso&&x.kind!=='manufacture')||it.dates_read.find(x=>x.iso)||{}).iso||'');
     extra=`<div style="margin-top:8px"><small class="err">${esc(it.reason)}</small>`;
     if(it.row||it.ambiguous_stores){
       const opts=it.ambiguous_stores?it.ambiguous_stores.map(t=>`<option>${esc(t)}</option>`).join(''):storeOpts(it.store);
