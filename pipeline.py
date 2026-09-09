@@ -105,6 +105,23 @@ def _decide_store(group, batch_store):
     return None, None, None
 
 
+def _gps_mismatch(group, selected_tab):
+    """고른 매장과 사진 GPS가 '명백히' 다른 매장이면 그 매장이름을 돌려줌(없으면 None).
+    - GPS 없는 사진은 무시(대부분 그럼) → 방해 안 함.
+    - 두 매장이 2km 떨어져 있고 반경 400m 안일 때만 매칭되므로 오판 거의 없음.
+    안전장치: 매장 잘못 고르거나 딴 매장 사진 섞으면 자동기입 막고 확인받기."""
+    if not selected_tab:
+        return None
+    for p in group:
+        gps = p.get("gps")
+        if not gps:
+            continue
+        tab, m = store_geo.locate(gps)   # 반경 안에 드는 가장 가까운 매장(없으면 None)
+        if tab and tab != selected_tab:
+            return tab                    # 사진이 딴 매장 코앞에서 찍힘 → 불일치
+    return None
+
+
 def _pick_dates(dates):
     exp, manu, amb, uncertain = [], [], [], []
     for d in dates:
@@ -251,6 +268,7 @@ def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=No
         verr = next((p["verr"] for p in g if p.get("verr")), None)
 
         tab, src, meters = _decide_store(g, batch_store)
+        gps_wrong = _gps_mismatch(g, batch_store)   # 고른 매장≠사진GPS(명백)면 딴 매장이름
         exp, manu, amb, uncertain = _pick_dates(dates)
 
         # 저장된 제품별 날짜형식으로 애매한 것 자동해결(확인필요 안 뜨게)
@@ -289,6 +307,17 @@ def process_batch(files, batch_store, sheet, client_gps=None, client_barcodes=No
         if conflict:
             item["reason"] = (item["reason"] + " / " if item["reason"] else "") + \
                 f"막대바코드({conflict[0]})와 인쇄숫자({conflict[1]})가 달라요 — 인쇄숫자 기준, 상품 숫자 확인"
+
+        # 0) 고른 매장 ≠ 사진 GPS(명백히 딴 매장) → 자동기입 금지(확인필요)
+        if gps_wrong:
+            item["status"] = "확인필요"
+            item["reason"] = (item["reason"] + " / " if item["reason"] else "") + \
+                f"다른 매장('{gps_wrong}')에서 찍은 사진 같아요 — 매장 확인 후 저장하세요"
+            item["gps_mismatch"] = gps_wrong
+            item["suggest_dates"] = ([d["iso"] for d in exp if d.get("iso")]
+                                     or [d["iso"] for d in uncertain if d.get("iso")]
+                                     or [d["iso"] for d in manu if d.get("iso")])
+            results.append(item); continue
 
         # 1) 바코드 못 읽음
         if not barcode:

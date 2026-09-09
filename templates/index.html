@@ -295,6 +295,15 @@ async function detectBarcode(file){
     return (codes&&codes.length)? String(codes[0].rawValue).trim() : null;
   }catch(e){ return null; }
 }
+// 여러 파일 바코드를 6장씩 나눠 읽음(폰 메모리 스파이크 방지). 순서 유지.
+async function detectAll(fileList){
+  const out=[], B=6;
+  for(let i=0;i<fileList.length;i+=B){
+    const part=await Promise.all(fileList.slice(i,i+B).map(f=>detectBarcode(f)));
+    for(const x of part) out.push(x);
+  }
+  return out;
+}
 // 폰에서 사진을 미리 줄여서 보냄(서버 메모리 절약 → 안 죽음). 바코드는 충분히 선명.
 function resizeImage(file){
   return new Promise((resolve)=>{
@@ -331,19 +340,30 @@ async function process(){
   });
   const files=idx.map(i=>picked[i]);
   const metas=idx.map(i=>metaAll[i]);
-  // ★상품 클러스터: 촬영간격이 큰 곳(상품 사이)에서 나눔 → 한 상품 사진들은 같은 번호
-  const GAPMS=5000;                    // 5초 이상 벌어지면 다른 상품(시각 없으면 경계로=안전)
-  const cluster=new Array(files.length); let cid=0;
+  // ★상품 경계 = '바코드가 새로 나올 때'(상품마다 바코드부터 찍으니까). 시간 간격 아님!
+  //  → 정성껏 찍어 컷 사이가 몇 초 벌어져도 같은 상품이면 안 쪼개짐(맥콜 찢어짐 해결).
+  proc.innerHTML='<span class="spin"></span> 바코드 확인 중…';
+  const bcAll=await detectAll(files);          // 원본에서 미리(정렬된 순서), 메모리 위해 6장씩
+  const bcCount=bcAll.filter(Boolean).length;
+  const GAPMS=60000;                   // 60초 넘게 벌어지면(상품 확실히 바뀜)만 안전분리 — 바코드가 주 경계
+  const cluster=new Array(files.length); let cid=0, curBc=null;
   for(let k=0;k<files.length;k++){
     if(k>0){
-      const tk=metas[k]&&metas[k].ts, tp=metas[k-1]&&metas[k-1].ts;
-      const g=(tk!=null&&tp!=null)?(tk-tp):Infinity;
-      if(g>=GAPMS) cid++;
+      const bc=bcAll[k];
+      const tk=(metas[k]&&metas[k].ts!=null)?metas[k].ts:(files[k].lastModified||null);
+      const tp=(metas[k-1]&&metas[k-1].ts!=null)?metas[k-1].ts:(files[k-1].lastModified||null);
+      const g=(tk!=null&&tp!=null)?(tk-tp):0;   // 시각 모르면 0(안 쪼갬) → 바코드로만 나눔
+      // 새 상품: 다른 바코드가 나옴 OR 아주 큰 시간간격. 같은 바코드 반복·첫 바코드는 안 쪼갬.
+      if((bc && curBc && bc!==curBc) || g>=GAPMS){ cid++; curBc=null; }
     }
     cluster[k]=cid;
+    if(bcAll[k]) curBc=bcAll[k];               // 이 상품(클러스터)의 바코드 기억
   }
-  // 묶음(chunk)은 ★상품(클러스터)을 절대 쪼개지 않고 ~CHUNK장씩 팩. 서버엔 그룹번호(cluster)도 보냄
-  const chunks=[], metaChunks=[], groupChunks=[];
+  // 바코드를 하나라도 읽었으면 클라 묶음을 서버에 넘김. 하나도 못 읽으면(아이폰 등 스캐너 미지원)
+  //  groups 안 보내고 서버가 zxing으로 직접 바코드-앵커 묶게 함.
+  const sendGroups = bcCount>=1;
+  // 묶음(chunk): 상품(클러스터)을 최대한 안 쪼갬. 한 상품이 CHUNK↑면 CHUNK로 캡(서버 타임아웃 방지).
+  const chunks=[], metaChunks=[], groupChunks=[], bcChunks=[];
   let s=0;
   while(s<files.length){
     let e=s;
@@ -352,8 +372,9 @@ async function process(){
       if(e>s && ce-s>CHUNK) break;     // 최소 한 상품은 담고, 넘치면 상품경계서 컷
       e=ce;
     }
-    if(e===s){ let ce=s; while(ce<files.length && cluster[ce]===cluster[s]) ce++; e=ce; } // 한 상품이 CHUNK↑면 통째
-    chunks.push(files.slice(s,e)); metaChunks.push(metas.slice(s,e)); groupChunks.push(cluster.slice(s,e));
+    if(e===s){ e=Math.min(s+CHUNK, files.length); }   // 한 상품이 CHUNK↑면 CHUNK로 캡
+    chunks.push(files.slice(s,e)); metaChunks.push(metas.slice(s,e));
+    groupChunks.push(cluster.slice(s,e)); bcChunks.push(bcAll.slice(s,e));
     s=e;
   }
   let all=[], failed=0, done=0;
@@ -362,8 +383,8 @@ async function process(){
     let blobs, gpsArr, bcArr;
     try{
       gpsArr=metaChunks[ci].map(m=>m.gps);                          // 정렬때 읽은 GPS 재사용
-      bcArr=await Promise.all(chunks[ci].map(f=>detectBarcode(f)));  // 원본에서 바코드
-      blobs=await Promise.all(chunks[ci].map(f=>resizeImage(f)));    // 그다음 축소
+      bcArr=bcChunks[ci];                                           // 앞에서 미리 읽은 바코드 재사용
+      blobs=await Promise.all(chunks[ci].map(f=>resizeImage(f)));    // 축소만
     }catch(e){ blobs=chunks[ci]; gpsArr=chunks[ci].map(()=>null); bcArr=chunks[ci].map(()=>null); }
     proc.innerHTML='<span class="spin"></span> 처리 중… '+done+' / '+files.length+'장'
       +(chunks.length>1?' ('+(ci+1)+'/'+chunks.length+' 묶음)':'')+' — 닫지 말고 기다려주세요';
@@ -372,7 +393,7 @@ async function process(){
     fd.append('nosort','1');                 // 정렬은 맨 끝에 한 번만
     fd.append('gps', JSON.stringify(gpsArr||[]));       // 사진별 GPS(자동 매장판별용)
     fd.append('barcodes', JSON.stringify(bcArr||[]));   // 사진별 바코드(폰이 원본에서 읽음)
-    fd.append('groups', JSON.stringify(groupChunks[ci]||[]));  // 사진별 상품그룹번호(서버가 이대로 묶음)
+    if(sendGroups) fd.append('groups', JSON.stringify(groupChunks[ci]||[]));  // 바코드 읽었을때만: 클라 묶음대로. 아니면 서버가 묶음
     blobs.forEach((b,i)=>fd.append('photos', b, 'p'+(done+i)+'.jpg'));
     try{
       const resp=await fetch('/api/process',{method:'POST',body:fd});
